@@ -18,7 +18,7 @@ async function main() {
   if ((await prisma.tier.count()) === 0) {
     await prisma.tier.createMany({
       data: [
-        { code: 'MEMBER', name: 'Thành viên', minPoints: 0, pointMultiplier: 1, color: '#8D99AE', benefits: 'Tích 1 điểm cho mỗi 10.000đ\nNhận ưu đãi sinh nhật' },
+        { code: 'MEMBER', name: 'Thành viên', minPoints: 0, pointMultiplier: 1, color: '#16A34A', benefits: 'Tích 1 điểm cho mỗi 10.000đ\nNhận ưu đãi sinh nhật' },
         { code: 'SILVER', name: 'Bạc', minPoints: 500, pointMultiplier: 1.2, color: '#9CA3AF', benefits: 'Nhân 1.2 điểm mỗi hoá đơn\nƯu tiên giữ bàn giờ cao điểm' },
         { code: 'GOLD', name: 'Vàng', minPoints: 2000, pointMultiplier: 1.5, color: '#F2B705', benefits: 'Nhân 1.5 điểm mỗi hoá đơn\nTặng món tráng miệng mỗi lần ghé\nƯu tiên giữ bàn' },
         { code: 'DIAMOND', name: 'Kim cương', minPoints: 5000, pointMultiplier: 2, color: '#3A86FF', benefits: 'Nhân 2 điểm mỗi hoá đơn\nPhòng VIP miễn phí\nQuà tặng dịp đặc biệt' },

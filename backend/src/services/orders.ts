@@ -61,6 +61,9 @@ export async function createOrder(input: CreateOrderInput, adminId: number) {
     if (input.bookingId) {
       const booking = await tx.booking.findUnique({ where: { id: input.bookingId } });
       if (!booking || booking.customerId !== customer.id) throw badRequest('Lịch đặt bàn không thuộc về khách hàng này');
+      if (!['PENDING', 'CONFIRMED', 'ARRIVED'].includes(booking.status)) {
+        throw badRequest('Lịch đặt bàn đã kết thúc hoặc bị huỷ, không thể gắn vào hoá đơn');
+      }
       await tx.booking.update({ where: { id: booking.id }, data: { status: 'COMPLETED' } });
     }
 
@@ -128,6 +131,14 @@ export async function cancelOrder(orderId: number, adminId: number) {
     if (order.status === 'CANCELLED') throw badRequest('Hoá đơn đã bị huỷ trước đó');
 
     await tx.order.update({ where: { id: order.id }, data: { status: 'CANCELLED', cancelledAt: new Date() } });
+
+    // Trả lịch đặt bàn về trạng thái "Đã đến" nếu không còn hoá đơn hợp lệ nào gắn với nó
+    if (order.bookingId) {
+      const others = await tx.order.count({ where: { bookingId: order.bookingId, status: 'COMPLETED' } });
+      if (others === 0) {
+        await tx.booking.updateMany({ where: { id: order.bookingId, status: 'COMPLETED' }, data: { status: 'ARRIVED' } });
+      }
+    }
 
     if (order.usedVoucher) {
       const expired = order.usedVoucher.expiresAt < new Date();

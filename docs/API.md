@@ -95,17 +95,17 @@ Role: `ADMIN` (quản lý – toàn quyền) và `STAFF` (nhân viên – thao t
 | POST | `/auth/change-password` | `{ oldPassword, newPassword }` |
 | GET | `/dashboard` | `{ totalCustomers, newCustomersToday, bookingsToday, pendingBookings, revenueToday, ordersToday, revenueMonth, ordersMonth, vouchersUsedMonth, tierDistribution: {id,name,color,count}[], revenueByDay: {date,revenue,orders}[], recentOrders, upcomingBookings }` |
 | GET | `/customers?q=&tierId=&sort=createdAt\|points\|totalSpent\|lastVisitAt&page=` | Phân trang khách (+ `tier`) |
-| GET | `/customers/lookup?q=<SĐT hoặc mã thành viên>` | Khách + `vouchers` (AVAILABLE) + `bookings` (đang mở). 404 nếu không có |
+| GET | `/customers/lookup?q=<SĐT hoặc mã thành viên>` | Khách + `vouchers` (AVAILABLE) + `bookings` (đang mở). 400 nếu `q` rỗng, 404 nếu không có |
 | GET | `/customers/:id` | Chi tiết: `orders, bookings, vouchers, pointTransactions, tier, nextTier, pointsToNextTier` |
 | PUT | `/customers/:id` | `{ name?, phone?, birthday?, gender?, note? }` |
 | POST | `/customers/:id/points` 🔒 | `{ points: số +/- , description, affectTier?: boolean }` |
 | POST | `/customers/:id/vouchers` | Tặng voucher `{ voucherId }` |
 | GET | `/bookings?status=&branchId=&from=ISO&to=ISO&q=&order=asc\|desc&page=` | Phân trang (+ `branch`, `customer`) |
 | GET | `/bookings/:id` | Chi tiết |
-| PATCH | `/bookings/:id` | `{ status?, adminNote?, notify?: boolean }` – luồng: PENDING→CONFIRMED/CANCELLED; CONFIRMED→ARRIVED/CANCELLED/NO_SHOW; ARRIVED→COMPLETED |
+| PATCH | `/bookings/:id` | `{ status?, adminNote?, notify?: boolean (mặc định true – nhắn tin OA cho khách) }` – luồng: PENDING→CONFIRMED/CANCELLED; CONFIRMED→ARRIVED/CANCELLED/NO_SHOW/PENDING; ARRIVED→COMPLETED/CONFIRMED; CANCELLED→PENDING; NO_SHOW→CONFIRMED (cho phép hoàn tác thao tác nhầm) |
 | GET | `/orders?q=&customerId=&branchId=&status=&from=&to=&page=` | Phân trang + `sumTotal`, `sumPoints` |
 | GET | `/orders/:id` | Chi tiết |
-| POST | `/orders` | `{ customerId, branchId?, bookingId?, items: [{name, quantity, price}], subtotal? (khi không nhập món), discount?, voucherCode?, note? }` → `{ order, tierUp }` |
+| POST | `/orders` | `{ customerId, branchId?, bookingId?, items: [{name, quantity, price}], subtotal? (khi không nhập món), discount?, voucherCode?, note? }` → `{ order, tierUp }`. `bookingId` phải đang PENDING/CONFIRMED/ARRIVED và sẽ chuyển sang COMPLETED |
 | POST | `/orders/:id/cancel` 🔒 | Huỷ hoá đơn, hoàn điểm |
 | GET | `/vouchers?q=&type=free\|points&page=` | Phân trang voucher (+ `usedCount`) |
 | GET | `/vouchers/check?code=&amount=` | Kiểm tra mã voucher của khách → `CustomerVoucher & { valid, reason, discount }` |

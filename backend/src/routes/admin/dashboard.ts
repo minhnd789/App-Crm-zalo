@@ -13,8 +13,9 @@ const startOfDayVN = (d = new Date()) => {
 dashboardRouter.get('/', async (_req, res) => {
   const today = startOfDayVN();
   const tomorrow = new Date(today.getTime() + 86400_000);
-  const monthStart = new Date(today);
-  monthStart.setUTCDate(1);
+  // 00:00 ngày 1 của tháng hiện tại theo giờ VN
+  const vnNow = new Date(Date.now() + 7 * 3600_000);
+  const monthStart = new Date(Date.UTC(vnNow.getUTCFullYear(), vnNow.getUTCMonth(), 1) - 7 * 3600_000);
   const days30 = new Date(today.getTime() - 29 * 86400_000);
 
   const [

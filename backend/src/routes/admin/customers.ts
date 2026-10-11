@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db.js';
-import { notFound } from '../../lib/errors.js';
+import { badRequest, notFound } from '../../lib/errors.js';
 import { idParam, optionalDate, paging, phoneSchema } from '../../lib/http.js';
 import { changePoints, expireVouchers, issueVoucher, membershipInfo } from '../../services/loyalty.js';
 import { requireManager } from '../../lib/auth.js';
@@ -36,10 +36,7 @@ customersRouter.get('/', async (req, res) => {
 /** Tìm nhanh khách theo SĐT hoặc mã thành viên (quét QR) – dùng khi tạo hoá đơn */
 customersRouter.get('/lookup', async (req, res) => {
   const q = String(req.query.q ?? '').trim();
-  if (!q) {
-    res.json(null);
-    return;
-  }
+  if (!q) throw badRequest('Nhập số điện thoại hoặc mã thành viên');
   const normalizedPhone = q.replace(/[\s.-]/g, '').replace(/^\+?84/, '0');
   const c = await prisma.customer.findFirst({
     where: { OR: [{ memberCode: q }, { phone: normalizedPhone }] },

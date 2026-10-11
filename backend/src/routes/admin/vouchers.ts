@@ -101,9 +101,15 @@ vouchersRouter.post('/', requireManager, async (req, res) => {
 });
 
 vouchersRouter.put('/:id', requireManager, async (req, res) => {
+  const id = idParam(req.params.id);
   const data = voucherSchema.partial().parse(req.body);
-  checkVoucher(data);
-  res.json(await prisma.voucher.update({ where: { id: idParam(req.params.id) }, data }));
+  const current = await prisma.voucher.findUnique({ where: { id } });
+  if (!current) throw notFound('Voucher không tồn tại');
+  checkVoucher({ discountType: current.discountType as 'PERCENT', discountValue: current.discountValue, startDate: current.startDate, endDate: current.endDate, ...data });
+  if (data.totalQuantity != null && data.totalQuantity < current.issuedCount) {
+    throw badRequest(`Số lượng không được nhỏ hơn số đã phát (${current.issuedCount})`);
+  }
+  res.json(await prisma.voucher.update({ where: { id }, data }));
 });
 
 vouchersRouter.delete('/:id', requireManager, async (req, res) => {
