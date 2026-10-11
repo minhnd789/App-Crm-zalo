@@ -17,7 +17,8 @@ dashboardRouter.get('/', async (req, res) => {
   const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
   // Lọc theo cơ sở: hoá đơn/đặt bàn tại cơ sở; khách theo cơ sở đã chọn khi đăng ký
   const bb = { ...bw, ...(branchId ? { branchId } : {}) };
-  const wb = { ...bw, ...(branchId ? { homeBranchId: branchId } : {}) };
+  // Chỉ đếm khách đã hoàn tất đăng ký thành viên (bỏ qua người mới mở Mini App)
+  const wb = { ...bw, registeredAt: { not: null }, ...(branchId ? { homeBranchId: branchId } : {}) };
   const today = startOfDayVN();
   const tomorrow = new Date(today.getTime() + 86400_000);
   // 00:00 ngày 1 của tháng hiện tại theo giờ VN
@@ -25,7 +26,6 @@ dashboardRouter.get('/', async (req, res) => {
   const monthStart = new Date(Date.UTC(vnNow.getUTCFullYear(), vnNow.getUTCMonth(), 1) - 7 * 3600_000);
   const days30 = new Date(today.getTime() - 29 * 86400_000);
   const members = { wallets: { some: wb } };
-  const brandFiltered = !!req.brand || !!branchId;
 
   const [
     totalCustomers,
@@ -40,17 +40,15 @@ dashboardRouter.get('/', async (req, res) => {
     orders30,
     vouchersUsedMonth,
   ] = await Promise.all([
-    brandFiltered ? prisma.customerWallet.count({ where: wb }) : prisma.customer.count(),
-    brandFiltered
-      ? prisma.customerWallet.count({ where: { ...wb, createdAt: { gte: today } } })
-      : prisma.customer.count({ where: { createdAt: { gte: today } } }),
+    prisma.customer.count({ where: members }),
+    prisma.customer.count({ where: { wallets: { some: { ...wb, registeredAt: { gte: today } } } } }),
     prisma.booking.count({ where: { ...bb, bookingTime: { gte: today, lt: tomorrow }, status: { not: 'CANCELLED' } } }),
     prisma.booking.count({ where: { ...bb, status: 'PENDING' } }),
     prisma.order.aggregate({ where: { ...bb, status: 'COMPLETED', createdAt: { gte: today } }, _sum: { total: true }, _count: true }),
     prisma.order.aggregate({ where: { ...bb, status: 'COMPLETED', createdAt: { gte: monthStart } }, _sum: { total: true }, _count: true }),
     prisma.tier.findMany({
       orderBy: { minSpent: 'asc' },
-      include: { _count: { select: { customers: brandFiltered ? { where: members } : true } } },
+      include: { _count: { select: { customers: { where: members } } } },
     }),
     prisma.order.findMany({
       where: { ...bb, status: 'COMPLETED' },

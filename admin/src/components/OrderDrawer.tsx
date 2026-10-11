@@ -9,6 +9,7 @@ import { useIsManager } from '../auth/useIsManager';
 import { datetime, errMsg, money, num } from '../utils/format';
 import { StatusTag } from './StatusTag';
 import { TierTag } from './TierTag';
+import { LocationText } from './BrandBadge';
 
 /** Ngăn chi tiết hoá đơn + nút huỷ (chỉ quản lý) */
 export function OrderDrawer({ orderId, onClose, onChanged }: { orderId: number | null; onClose: () => void; onChanged?: () => void }) {
@@ -78,9 +79,15 @@ export function OrderDrawer({ orderId, onClose, onChanged }: { orderId: number |
                 '—'
               )}
             </Descriptions.Item>
-            <Descriptions.Item label="Chi nhánh">{order.branch?.name ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label="Cơ sở">
+              <LocationText branch={order.branch ? { ...order.branch, brand: order.brand } : null} brandId={order.brandId} />
+            </Descriptions.Item>
+            <Descriptions.Item label="Nguồn">
+              {order.source === 'POS' ? 'Phần mềm bán hàng (POS)' : 'Nhập thủ công'}
+              {order.externalId ? ` · Mã HĐ POS: ${order.externalId}` : ''}
+            </Descriptions.Item>
             <Descriptions.Item label="Thời gian">{datetime(order.createdAt)}</Descriptions.Item>
-            <Descriptions.Item label="Nhân viên tạo">{order.createdBy?.name ?? '—'}</Descriptions.Item>
+            {order.createdBy ? <Descriptions.Item label="Nhân viên tạo">{order.createdBy.name}</Descriptions.Item> : null}
             {order.note ? <Descriptions.Item label="Ghi chú">{order.note}</Descriptions.Item> : null}
           </Descriptions>
 

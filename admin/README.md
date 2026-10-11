@@ -4,40 +4,43 @@ Trang web quản trị (dành cho quản lý và nhân viên nhà hàng), tách 
 Gọi API `/api/admin` của backend trong thư mục `backend/`. Một trang quản trị dùng cho **nhiều thương hiệu**
 (mỗi thương hiệu có Zalo Mini App + OA riêng, chung 1 backend/CSDL).
 
-## Đa thương hiệu
+## Quản trị trung tâm nhiều thương hiệu
 
-- **Chọn thương hiệu** ở thanh trên cùng (chấm màu + tên). Lựa chọn được lưu trong trình duyệt và gửi kèm mọi request
-  qua header `X-Brand-Id`; đổi thương hiệu sẽ tải lại dữ liệu trang đang xem. Tiêu đề các trang theo thương hiệu
-  có tag tên thương hiệu.
-- **Tài khoản toàn hệ thống** (`brandId = null`) được đổi qua lại giữa các thương hiệu. **Tài khoản gắn thương hiệu**
-  chỉ thấy thương hiệu của mình (hiện cố định, không có ô chọn).
-- **Quản trị toàn hệ thống** (vai trò Quản lý + toàn hệ thống) quản lý trang *Thương hiệu* và *Hạng thành viên*.
-- Dữ liệu **theo thương hiệu**: tổng quan, đặt bàn, hoá đơn, ví điểm, voucher, chương trình ưu đãi, chi nhánh, cài đặt tích điểm.
-- Dữ liệu **dùng chung**: khách hàng (nhận diện theo SĐT / mã thành viên), hạng thành viên (xét theo **tổng chi tiêu ở mọi
-  thương hiệu**). Điểm nằm trong ví riêng từng thương hiệu.
-
-**Công nghệ:** Vite + React 18 + TypeScript, Ant Design 5 (tiếng Việt), React Router, Recharts, html5-qrcode (quét QR thành viên bằng camera).
+- **Bộ lọc thương hiệu** ở thanh trên cùng: mặc định **"Tất cả thương hiệu"** (không gửi header) hoặc chọn 1 thương hiệu
+  (gửi `X-Brand-Id`). Lựa chọn được lưu trong trình duyệt; đổi bộ lọc sẽ tải lại trang đang xem. Ở chế độ tất cả,
+  các bảng có thêm cột **Thương hiệu** (chấm màu).
+- **Cơ sở** = nhà hàng của từng thương hiệu, đặt tên theo vị trí (VD "Quận 1") và luôn hiển thị kèm thương hiệu:
+  "Nhà hàng Ngon · Quận 1". Tổng quan, đặt bàn, hoá đơn, khách hàng có bộ lọc **Cơ sở** (nhóm theo thương hiệu).
+- Tạo mới voucher / chương trình ưu đãi / cơ sở / cộng-trừ điểm khi đang xem tất cả → form yêu cầu **chọn thương hiệu**.
+  Trang Cài đặt có ô chọn thương hiệu cần cấu hình.
+- **Tài khoản gắn thương hiệu** chỉ thấy thương hiệu của mình (hiện cố định, không có ô chọn).
+- **Quản trị toàn hệ thống** (vai trò Quản lý, không gắn thương hiệu) quản lý *Thương hiệu* và *Hạng thành viên*.
+- **Khách hàng** dùng chung (nhận diện theo SĐT / mã thành viên). Khách đăng ký thành viên trên Mini App của từng
+  thương hiệu với ngày sinh và **cơ sở hay đến** → lọc theo cơ sở đăng ký, trạng thái đăng ký, tháng sinh
+  ("Sinh nhật tháng này"), hạng. Điểm nằm trong **ví riêng từng thương hiệu**; hạng dùng chung theo tổng chi tiêu.
+- **Hoá đơn chỉ đến từ phần mềm bán hàng (r_keeper)** – trang quản trị không tạo hoá đơn; chỉ xem lịch sử (nguồn POS,
+  mã HĐ POS) và Quản lý có thể huỷ hoá đơn sai để hoàn điểm.
+- **Voucher tại quầy**: dùng công cụ *Kiểm tra mã voucher* → *Xác nhận sử dụng* để đánh dấu voucher đã dùng.
 
 ## Chức năng
 
 | Trang | Đường dẫn | Ghi chú |
 |---|---|---|
 | Đăng nhập | `/login` | |
-| Tổng quan | `/` | Số liệu, biểu đồ doanh thu 30 ngày, phân bố hạng, lịch đặt bàn sắp tới, hoá đơn gần đây |
-| Tạo hoá đơn & tích điểm | `/orders/new` | Tìm khách theo SĐT / mã thành viên / quét QR → nhập món hoặc tổng tiền, giảm giá, voucher → cộng điểm |
-| Khách hàng | `/customers`, `/customers/:id` | Khách dùng chung; lọc "chỉ thành viên của thương hiệu này"; ví điểm theo từng thương hiệu, Mini App đã dùng; cộng/trừ điểm ví (Quản lý), tặng voucher |
-| Đặt bàn | `/bookings` | Lọc theo ngày/trạng thái/chi nhánh, xác nhận, khách đến, không đến, huỷ, tạo hoá đơn từ lịch |
-| Hoá đơn | `/orders` | Danh sách + tổng doanh thu/điểm, chi tiết, huỷ hoá đơn (Quản lý – tự trừ lại điểm) |
-| Voucher | `/vouchers`, `/vouchers/:id` | Tạo/sửa (Quản lý), tặng hàng loạt, kiểm tra mã voucher |
+| Tổng quan | `/` | Số liệu theo bộ lọc thương hiệu/cơ sở, doanh thu tháng theo thương hiệu và theo cơ sở, doanh thu 30 ngày, phân bố hạng, lịch đặt bàn sắp tới, hoá đơn gần đây |
+| Khách hàng | `/customers`, `/customers/:id` | Lọc cơ sở đăng ký, đã/chưa đăng ký, tháng sinh, hạng; ví điểm từng thương hiệu (cơ sở & ngày đăng ký), Mini App đã dùng; cộng/trừ điểm ví (Quản lý), tặng voucher |
+| Đặt bàn | `/bookings` | Lọc theo ngày/trạng thái/cơ sở; xác nhận, khách đã đến, không đến, huỷ, hoàn thành |
+| Hoá đơn | `/orders` | Lịch sử hoá đơn đồng bộ từ POS (nguồn, mã HĐ POS) + tổng doanh thu/điểm, chi tiết, huỷ hoá đơn (Quản lý – tự trừ lại điểm) |
+| Voucher | `/vouchers`, `/vouchers/:id` | Tạo/sửa (Quản lý), tặng hàng loạt theo hạng / cơ sở đăng ký / chọn khách, kiểm tra mã & xác nhận sử dụng tại quầy |
 | Chương trình ưu đãi | `/promotions` | Bài viết/banner hiển thị trên Mini App |
 | Hạng thành viên | `/tiers` | Dùng chung: mức chi tiêu tối thiểu, hệ số nhân điểm, màu, quyền lợi (chỉ quản trị toàn hệ thống sửa) |
-| Chi nhánh | `/branches` | Giờ mở cửa, ảnh, bật/tắt |
+| Cơ sở | `/branches` | Nhóm theo thương hiệu, số thành viên đăng ký, giờ mở cửa, ảnh, bật/tắt |
 | Thương hiệu | `/brands` | Chỉ quản trị toàn hệ thống: tên, mã, logo, màu, hotline, giới thiệu, Zalo App/OA ID, secret key & OA token (chỉ ghi) |
 | Cài đặt | `/settings` | Quản lý: cài đặt tích điểm & đặt bàn của thương hiệu |
 | Tài khoản quản trị | `/admins` | Quản lý: quản trị toàn hệ thống gán tài khoản cho thương hiệu; quản lý thương hiệu chỉ tạo/sửa tài khoản trong thương hiệu mình |
 
 Phân quyền: **Quản lý (ADMIN)** toàn quyền trong phạm vi của mình (toàn hệ thống hoặc 1 thương hiệu).
-**Nhân viên (STAFF)** tạo hoá đơn, xử lý đặt bàn, tặng voucher cho từng khách, xem dữ liệu; các nút không có quyền sẽ bị ẩn.
+**Nhân viên (STAFF)** xử lý đặt bàn, xác nhận dùng voucher, tặng voucher cho từng khách, xem dữ liệu; các nút không có quyền sẽ bị ẩn.
 
 ## Cấu hình
 
@@ -131,9 +134,8 @@ Chép nội dung `dist/` lên máy chủ: `rsync -av --delete dist/ user@server:
 
 ### Lưu ý
 
-- Quét QR bằng camera chỉ hoạt động trên **HTTPS** (hoặc `localhost`). Luôn có ô nhập SĐT / mã thành viên thủ công.
 - Phiên đăng nhập quản trị hết hạn sau 12 giờ; khi hết hạn trang tự chuyển về màn đăng nhập.
-- Ảnh tải lên (voucher, chương trình, chi nhánh) được lưu ở backend (`/uploads`). Nếu backend chạy sau reverse proxy HTTPS,
+- Ảnh tải lên (voucher, chương trình, cơ sở) được lưu ở backend (`/uploads`). Nếu backend chạy sau reverse proxy HTTPS,
   cần cấu hình để URL ảnh trả về đúng giao thức `https`.
 
 ## Cấu trúc thư mục
@@ -143,7 +145,7 @@ src/
   api/          client.ts (fetch + token + X-Brand-Id, tự đăng xuất khi 401), types.ts
   auth/         AuthContext (admin + thương hiệu đang chọn), RequireAuth/RequireManager/RequireSuperAdmin, isManager/isSuperAdmin
   layouts/      AdminLayout (menu bên trái, đổi mật khẩu, đăng xuất)
-  components/   StatusTag, TierTag, BrandBadge, ImageUpload, OrderDrawer, QrScanModal, ...
+  components/   StatusTag, TierTag, BrandBadge (BrandTag, BranchSelect, BrandSelect, LocationText), ImageUpload, OrderDrawer, ...
   hooks/        useRequest, useTiers/useBranches
   pages/        các trang theo bảng ở trên
   utils/        format.ts (tiền 1.234.000đ, ngày DD/MM/YYYY HH:mm), voucher.ts

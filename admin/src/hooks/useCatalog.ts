@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, brandStore } from '../api/client';
 import type { Branch, Tier } from '../api/types';
 
-// Bộ nhớ đệm đơn giản cho danh mục ít thay đổi. Hạng dùng chung; chi nhánh theo từng thương hiệu.
+// Bộ nhớ đệm đơn giản cho danh mục ít thay đổi. Hạng dùng chung; cơ sở theo bộ lọc thương hiệu (0 = tất cả).
 let tiersCache: Promise<Tier[]> | undefined;
 const branchesCache = new Map<number, Promise<Branch[]>>();
 
@@ -23,18 +23,18 @@ export function useTiers() {
   return tiers;
 }
 
-/** Chi nhánh của thương hiệu đang chọn */
+/** Cơ sở theo bộ lọc thương hiệu đang chọn (tất cả thương hiệu khi không lọc), kèm `brand` */
 export function useBranches() {
   const [branches, setBranches] = useState<Branch[]>([]);
   useEffect(() => {
-    const brandId = brandStore.get() ?? 0;
-    let p = branchesCache.get(brandId);
+    const key = brandStore.get() ?? 0;
+    let p = branchesCache.get(key);
     if (!p) {
       p = api.get<Branch[]>('/branches').catch((e) => {
-        branchesCache.delete(brandId);
+        branchesCache.delete(key);
         throw e;
       });
-      branchesCache.set(brandId, p);
+      branchesCache.set(key, p);
     }
     p.then(setBranches).catch(() => undefined);
   }, []);

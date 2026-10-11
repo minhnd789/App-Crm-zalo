@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:demo-orders": "tsx prisma/demo-orders.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "test": "tsx --test test/*.test.ts"
   },

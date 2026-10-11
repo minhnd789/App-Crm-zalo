@@ -17,10 +17,14 @@ import {
   Switch,
   Typography,
   Button,
+  Popconfirm,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { api } from '../../api/client';
-import type { Customer, Paged, Voucher, VoucherCheck } from '../../api/types';
+import type { Customer, CustomerVoucher, Paged, Voucher, VoucherCheck } from '../../api/types';
+import { useAuth } from '../../auth/AuthContext';
+import { BranchSelect, BrandSelect, BrandTag } from '../../components/BrandBadge';
+import { CheckCircleOutlined } from '@ant-design/icons';
 import { useTiers } from '../../hooks/useCatalog';
 import { ImageUpload } from '../../components/ImageUpload';
 import { StatusTag } from '../../components/StatusTag';
@@ -29,6 +33,7 @@ import { datetime, errMsg, money, moneyInput } from '../../utils/format';
 import { discountText } from '../../utils/voucher';
 
 interface FormValues {
+  brandId?: number;
   title: string;
   description?: string;
   imageUrl?: string | null;
@@ -62,6 +67,7 @@ export function VoucherFormModal({
   const [form] = Form.useForm<FormValues>();
   const { message } = App.useApp();
   const tiers = useTiers();
+  const { brandId: brandFilter } = useAuth();
   const [saving, setSaving] = useState(false);
   const discountType = Form.useWatch('discountType', form);
   const kind = Form.useWatch('kind', form);
@@ -95,6 +101,8 @@ export function VoucherFormModal({
 
   const onFinish = async (v: FormValues) => {
     const body = {
+      // Tạo mới khi đang xem tất cả thương hiệu → phải chọn thương hiệu
+      ...(!voucher && !brandFilter ? { brandId: v.brandId } : {}),
       title: v.title.trim(),
       description: v.description?.trim() || null,
       imageUrl: v.imageUrl || null,
@@ -137,6 +145,15 @@ export function VoucherFormModal({
       forceRender
     >
       <Form form={form} layout="vertical" onFinish={onFinish}>
+        {voucher ? (
+          <Form.Item label="Thương hiệu">
+            <BrandTag brand={voucher.brand} brandId={voucher.brandId} />
+          </Form.Item>
+        ) : !brandFilter ? (
+          <Form.Item name="brandId" label="Thương hiệu" rules={[{ required: true, message: 'Chọn thương hiệu' }]}>
+            <BrandSelect data-testid="voucher-brand" />
+          </Form.Item>
+        ) : null}
         <Form.Item name="title" label="Tên voucher" rules={[{ required: true, whitespace: true, message: 'Nhập tên voucher' }]}>
           <Input maxLength={200} placeholder="VD: Giảm 10% cho hoá đơn từ 500.000đ" />
         </Form.Item>
@@ -314,7 +331,7 @@ export function CustomerMultiSelect({ value, onChange }: { value?: number[]; onC
 
 /** Tặng voucher hàng loạt theo hạng hoặc danh sách khách */
 export function GiftBulkModal({ voucher, onClose, onDone }: { voucher: Voucher | null; onClose: () => void; onDone?: () => void }) {
-  const [form] = Form.useForm<{ target: 'tier' | 'customers'; tierId?: number; customerIds?: number[] }>();
+  const [form] = Form.useForm<{ target: 'tier' | 'branch' | 'customers'; tierId?: number; branchId?: number; customerIds?: number[] }>();
   const { message, modal } = App.useApp();
   const tiers = useTiers();
   const target = Form.useWatch('target', form);
@@ -349,7 +366,7 @@ export function GiftBulkModal({ voucher, onClose, onDone }: { voucher: Voucher |
           try {
             const res = await api.post<{ success: number; failed: number; errors: { customerId: number; error: string }[] }>(
               `/vouchers/${voucher.id}/gift`,
-              v.target === 'tier' ? { tierId: v.tierId } : { customerIds: v.customerIds },
+              v.target === 'tier' ? { tierId: v.tierId } : v.target === 'branch' ? { branchId: v.branchId } : { customerIds: v.customerIds },
             );
             if (res.failed > 0) {
               modal.warning({
@@ -380,12 +397,22 @@ export function GiftBulkModal({ voucher, onClose, onDone }: { voucher: Voucher |
           <Radio.Group
             optionType="button"
             options={[
-              { value: 'tier', label: 'Toàn bộ khách một hạng' },
+              { value: 'tier', label: 'Theo hạng' },
+              { value: 'branch', label: 'Theo cơ sở đăng ký' },
               { value: 'customers', label: 'Chọn khách hàng' },
             ]}
           />
         </Form.Item>
-        {target === 'customers' ? (
+        {target === 'branch' ? (
+          <Form.Item
+            name="branchId"
+            label="Cơ sở"
+            rules={[{ required: true, message: 'Chọn cơ sở' }]}
+            extra="Tặng cho toàn bộ khách đã chọn cơ sở này khi đăng ký thành viên"
+          >
+            <BranchSelect brandId={voucher?.brandId ?? null} data-testid="gift-branch" />
+          </Form.Item>
+        ) : target === 'customers' ? (
           <Form.Item name="customerIds" label="Khách hàng" rules={[{ required: true, message: 'Chọn ít nhất 1 khách' }]}>
             <CustomerMultiSelect />
           </Form.Item>
@@ -394,7 +421,7 @@ export function GiftBulkModal({ voucher, onClose, onDone }: { voucher: Voucher |
             name="tierId"
             label="Hạng thành viên"
             rules={[{ required: true, message: 'Chọn hạng' }]}
-            extra="Chỉ tặng cho khách thuộc hạng này đã là thành viên (có ví) của thương hiệu đang chọn"
+            extra="Chỉ tặng cho khách thuộc hạng này đã là thành viên (có ví) của thương hiệu của voucher"
           >
             <Select
               options={tiers.map((t) => ({ value: t.id, label: t.name }))}
@@ -409,12 +436,28 @@ export function GiftBulkModal({ voucher, onClose, onDone }: { voucher: Voucher |
 }
 
 /** Công cụ kiểm tra mã voucher khách đưa tại quầy */
-export function VoucherCheckModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function VoucherCheckModal({ open, onClose, onRedeemed }: { open: boolean; onClose: () => void; onRedeemed?: () => void }) {
   const [code, setCode] = useState('');
   const [amount, setAmount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<VoucherCheck | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { message } = App.useApp();
+  const [redeeming, setRedeeming] = useState(false);
+  const redeem = async () => {
+    if (!result) return;
+    setRedeeming(true);
+    try {
+      const cv = await api.post<CustomerVoucher>('/vouchers/redeem', { code: result.code });
+      setResult({ ...result, ...cv, voucher: cv.voucher ?? result.voucher, customer: result.customer, valid: false, reason: 'Voucher đã được sử dụng', discount: null });
+      message.success(`Đã ghi nhận sử dụng voucher ${result.code}`);
+      onRedeemed?.();
+    } catch (e) {
+      message.error(errMsg(e));
+    } finally {
+      setRedeeming(false);
+    }
+  };
   const check = async () => {
     if (!code.trim()) return;
     setLoading(true);
@@ -475,6 +518,9 @@ export function VoucherCheckModal({ open, onClose }: { open: boolean; onClose: (
           />
           <Descriptions column={1} size="small" bordered styles={{ label: { width: 140 } }}>
             <Descriptions.Item label="Mã">{result.code}</Descriptions.Item>
+            <Descriptions.Item label="Thương hiệu">
+              <BrandTag brand={result.voucher.brand} brandId={result.brandId} />
+            </Descriptions.Item>
             <Descriptions.Item label="Voucher">
               <Link to={`/vouchers/${result.voucherId}`} onClick={onClose}>
                 {result.voucher.title}
@@ -501,6 +547,21 @@ export function VoucherCheckModal({ open, onClose }: { open: boolean; onClose: (
             <Descriptions.Item label="Hết hạn">{datetime(result.expiresAt)}</Descriptions.Item>
             {result.usedAt ? <Descriptions.Item label="Dùng lúc">{datetime(result.usedAt)}</Descriptions.Item> : null}
           </Descriptions>
+          {result.valid && result.status === 'AVAILABLE' ? (
+            <div style={{ marginTop: 16, textAlign: 'right' }}>
+              <Popconfirm
+                title="Xác nhận khách sử dụng voucher này?"
+                description="Voucher sẽ chuyển sang Đã dùng và không thể dùng lại."
+                okText="Xác nhận"
+                cancelText="Không"
+                onConfirm={redeem}
+              >
+                <Button type="primary" icon={<CheckCircleOutlined />} loading={redeeming} data-testid="voucher-redeem">
+                  Xác nhận sử dụng
+                </Button>
+              </Popconfirm>
+            </div>
+          ) : null}
         </>
       ) : null}
     </Modal>

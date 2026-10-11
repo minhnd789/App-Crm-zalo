@@ -1,20 +1,26 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Button, Card, Col, DatePicker, Input, Row, Select, Space, Statistic, Table } from 'antd';
-import { PlusCircleOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Col, DatePicker, Input, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
 import { api } from '../../api/client';
 import type { Order, OrdersPage as OrdersPageData } from '../../api/types';
 import { useRequest } from '../../hooks/useRequest';
-import { useBranches } from '../../hooks/useCatalog';
+import { useAuth } from '../../auth/AuthContext';
 import { PageHeader } from '../../components/PageHeader';
 import { ORDER_STATUS, StatusTag } from '../../components/StatusTag';
 import { OrderDrawer } from '../../components/OrderDrawer';
+import { BranchSelect, BrandTag, LocationText } from '../../components/BrandBadge';
 import { datetime, money, num } from '../../utils/format';
+
+export const ORDER_SOURCE: Record<string, { label: string; color: string }> = {
+  POS: { label: 'POS', color: 'geekblue' },
+  ADMIN: { label: 'Thủ công', color: 'default' },
+};
 
 export default function OrdersPage() {
   const [params, setParams] = useSearchParams();
-  const branches = useBranches();
+  const { allBrands } = useAuth();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<string | undefined>();
   const [branchId, setBranchId] = useState<number | undefined>();
@@ -39,17 +45,55 @@ export default function OrdersPage() {
     setParams(p, { replace: true });
   };
 
+  const columns: ColumnsType<Order> = [
+    {
+      title: 'Mã / Mã HĐ POS',
+      dataIndex: 'code',
+      render: (v: string, o) => (
+        <div className="nowrap">
+          <a>{v}</a>
+          <div style={{ marginTop: 2 }}>
+            <Tag color={ORDER_SOURCE[o.source ?? 'ADMIN']?.color} style={{ fontSize: 11, lineHeight: '16px', paddingInline: 4 }}>
+              {ORDER_SOURCE[o.source ?? 'ADMIN']?.label ?? o.source}
+            </Tag>
+            {o.externalId ? <Typography.Text style={{ fontSize: 12 }}>{o.externalId}</Typography.Text> : null}
+          </div>
+        </div>
+      ),
+    },
+    { title: 'Thời gian', dataIndex: 'createdAt', width: 100, render: (v) => <span>{datetime(v)}</span> },
+    ...(allBrands ? ([{ title: 'Thương hiệu', render: (_, o) => <BrandTag brand={o.brand} brandId={o.brandId} /> }] as ColumnsType<Order>) : []),
+    {
+      title: 'Cơ sở',
+      render: (_, o) => <span className="nowrap">{o.branch ? allBrands ? o.branch.name : <LocationText branch={o.branch} brandId={o.brandId} /> : '—'}</span>,
+    },
+    {
+      title: 'Khách hàng',
+      render: (_, o) =>
+        o.customer ? (
+          <span onClick={(e) => e.stopPropagation()}>
+            <Link to={`/customers/${o.customer.id}`}>{o.customer.name}</Link>
+            <div style={{ fontSize: 12, color: '#8c8c8c' }}>{o.customer.phone}</div>
+          </span>
+        ) : (
+          '—'
+        ),
+    },
+    { title: 'Giảm', align: 'right', render: (_, o) => (o.discount + o.voucherDiscount > 0 ? `-${money(o.discount + o.voucherDiscount)}` : '—') },
+    { title: 'Khách trả', dataIndex: 'total', align: 'right', render: (v) => <b>{money(v)}</b> },
+    { title: 'Điểm', dataIndex: 'pointsEarned', align: 'right', render: (v) => `+${num(v)}` },
+    { title: 'Trạng thái', dataIndex: 'status', render: (s) => <StatusTag kind="order" status={s} /> },
+  ];
+
   return (
     <>
-      <PageHeader
-        title="Hoá đơn / Tích điểm" scoped
-        extra={
-          <Link to="/orders/new">
-            <Button type="primary" icon={<PlusCircleOutlined />}>
-              Tạo hoá đơn
-            </Button>
-          </Link>
-        }
+      <PageHeader title="Hoá đơn" scoped subtitle="Lịch sử hoá đơn và điểm đã tích" />
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Hoá đơn được đồng bộ từ phần mềm bán hàng (r_keeper)"
+        description="Trang quản trị không tạo hoá đơn. Điểm được cộng tự động khi hoá đơn đồng bộ về; Quản lý có thể huỷ hoá đơn sai để hoàn điểm."
       />
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={8}>
@@ -88,16 +132,15 @@ export default function OrdersPage() {
             }}
             placeholder={['Từ ngày', 'Đến ngày']}
           />
-          <Select
+          <BranchSelect
             allowClear
-            placeholder="Chi nhánh"
-            style={{ width: 200 }}
+            placeholder="Tất cả cơ sở"
+            style={{ width: 260 }}
             value={branchId}
             onChange={(v) => {
-              setBranchId(v);
+              setBranchId(v ?? undefined);
               setPage(1);
             }}
-            options={branches.map((b) => ({ value: b.id, label: b.name }))}
           />
           <Select
             allowClear
@@ -126,7 +169,7 @@ export default function OrdersPage() {
           rowKey="id"
           loading={loading}
           dataSource={data?.items}
-          scroll={{ x: 1000 }}
+          scroll={{ x: 1080 }}
           onRow={(o) => ({ onClick: () => setOpen(o.id), style: { cursor: 'pointer' } })}
           pagination={{
             current: page,
@@ -139,29 +182,7 @@ export default function OrdersPage() {
               setPageSize(s);
             },
           }}
-          columns={[
-            { title: 'Mã', dataIndex: 'code', render: (v) => <a>{v}</a> },
-            { title: 'Thời gian', dataIndex: 'createdAt', render: (v) => <span className="nowrap">{datetime(v)}</span> },
-            {
-              title: 'Khách hàng',
-              render: (_, o) =>
-                o.customer ? (
-                  <span onClick={(e) => e.stopPropagation()}>
-                    <Link to={`/customers/${o.customer.id}`}>{o.customer.name}</Link>
-                    <div style={{ fontSize: 12, color: '#8c8c8c' }}>{o.customer.phone}</div>
-                  </span>
-                ) : (
-                  '—'
-                ),
-            },
-            { title: 'Chi nhánh', render: (_, o) => o.branch?.name ?? '—' },
-            { title: 'Tạm tính', dataIndex: 'subtotal', align: 'right', render: money },
-            { title: 'Giảm', align: 'right', render: (_, o) => (o.discount + o.voucherDiscount > 0 ? `-${money(o.discount + o.voucherDiscount)}` : '—') },
-            { title: 'Khách trả', dataIndex: 'total', align: 'right', render: (v) => <b>{money(v)}</b> },
-            { title: 'Điểm', dataIndex: 'pointsEarned', align: 'right', render: (v) => `+${num(v)}` },
-            { title: 'Nhân viên', render: (_, o) => o.createdBy?.name ?? '—' },
-            { title: 'Trạng thái', dataIndex: 'status', render: (s) => <StatusTag kind="order" status={s} /> },
-          ]}
+          columns={columns}
         />
       </Card>
       <OrderDrawer orderId={openId} onClose={() => setOpen(null)} onChanged={() => reload()} />

@@ -17,7 +17,7 @@ export function PageHeader({
   extra?: ReactNode;
   scoped?: boolean;
 }) {
-  const { brand } = useAuth();
+  const { brand, allBrands } = useAuth();
   return (
     <Flex justify="space-between" align="center" wrap gap={12} style={{ marginBottom: 16 }}>
       <div>
@@ -29,6 +29,10 @@ export function PageHeader({
             <Tag style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '2px 8px', margin: 0 }} data-testid="page-brand">
               <BrandDot color={brand.primaryColor} size={8} />
               {brand.name}
+            </Tag>
+          ) : scoped && allBrands ? (
+            <Tag style={{ fontSize: 13, padding: '2px 8px', margin: 0 }} data-testid="page-brand">
+              Tất cả thương hiệu
             </Tag>
           ) : null}
         </Flex>

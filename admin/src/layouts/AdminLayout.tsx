@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { App, Avatar, Button, Dropdown, Form, Grid, Input, Layout, Menu, Modal, Result, Select, Space, Tag, Typography, theme } from 'antd';
+import { App, Avatar, Button, Dropdown, Form, Grid, Input, Layout, Menu, Modal, Select, Space, Tag, Typography, theme } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   BankOutlined,
@@ -13,7 +13,6 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   NotificationOutlined,
-  PlusCircleOutlined,
   SettingOutlined,
   ShopOutlined,
   TeamOutlined,
@@ -31,6 +30,7 @@ const { Sider, Header, Content } = Layout;
 
 export default function AdminLayout() {
   const { user, logout, brands, brand, brandId, setBrandId } = useAuth();
+  const ALL = 0;
   const manager = isManager(user);
   const superAdmin = isSuperAdmin(user);
   const location = useLocation();
@@ -44,15 +44,13 @@ export default function AdminLayout() {
   const items: MenuProps['items'] = useMemo(
     () => [
       { key: '/', icon: <DashboardOutlined />, label: <Link to="/">Tổng quan</Link> },
-      { key: '/orders/new', icon: <PlusCircleOutlined />, label: <Link to="/orders/new">Tạo hoá đơn</Link> },
-      { type: 'divider' },
       { key: '/customers', icon: <TeamOutlined />, label: <Link to="/customers">Khách hàng</Link> },
       { key: '/bookings', icon: <CalendarOutlined />, label: <Link to="/bookings">Đặt bàn</Link> },
-      { key: '/orders', icon: <FileTextOutlined />, label: <Link to="/orders">Hoá đơn / Tích điểm</Link> },
+      { key: '/orders', icon: <FileTextOutlined />, label: <Link to="/orders">Hoá đơn</Link> },
       { key: '/vouchers', icon: <GiftOutlined />, label: <Link to="/vouchers">Voucher</Link> },
       { key: '/promotions', icon: <NotificationOutlined />, label: <Link to="/promotions">Chương trình ưu đãi</Link> },
       { key: '/tiers', icon: <CrownOutlined />, label: <Link to="/tiers">Hạng thành viên</Link> },
-      { key: '/branches', icon: <ShopOutlined />, label: <Link to="/branches">Chi nhánh</Link> },
+      { key: '/branches', icon: <ShopOutlined />, label: <Link to="/branches">Cơ sở</Link> },
       ...(manager
         ? ([
             { type: 'divider' },
@@ -66,9 +64,7 @@ export default function AdminLayout() {
   );
 
   // Chọn mục menu khớp dài nhất với đường dẫn hiện tại
-  const keys = ['/', '/orders/new', '/customers', '/bookings', '/orders', '/vouchers', '/promotions', '/tiers', '/branches', '/brands', '/settings', '/admins'];
-  // Trang dùng chung không cần chọn thương hiệu
-  const globalPage = ['/brands', '/tiers', '/admins'].some((k) => location.pathname.startsWith(k));
+  const keys = ['/', '/customers', '/bookings', '/orders', '/vouchers', '/promotions', '/tiers', '/branches', '/brands', '/settings', '/admins'];
   const selected =
     keys
       .filter((k) => (k === '/' ? location.pathname === '/' : location.pathname === k || location.pathname.startsWith(k + '/')))
@@ -130,7 +126,7 @@ export default function AdminLayout() {
             alignItems: 'center',
             justifyContent: 'space-between',
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            borderTop: `3px solid ${brand?.primaryColor || token.colorPrimary}`,
+            borderTop: `3px solid ${brand?.primaryColor || '#8c8c8c'}`,
             position: 'sticky',
             top: 0,
             zIndex: 10,
@@ -145,18 +141,38 @@ export default function AdminLayout() {
             />
             {user && user.brandId === null && brands.length > 0 ? (
               <Space size={8}>
-                {screens.md ? <Typography.Text type="secondary">Thương hiệu:</Typography.Text> : null}
+                {screens.md ? <Typography.Text type="secondary">Lọc thương hiệu:</Typography.Text> : null}
                 <Select
                   data-testid="brand-switcher"
-                  value={brandId ?? undefined}
+                  value={brandId ?? ALL}
                   onChange={(id: number) => {
-                    setBrandId(id);
+                    setBrandId(id === ALL ? null : id);
                     const b = brands.find((x) => x.id === id);
-                    if (b) message.info(`Đang thao tác: ${b.name}`);
+                    message.info(b ? `Đang lọc: ${b.name}` : 'Đang xem tất cả thương hiệu');
                   }}
                   style={{ minWidth: screens.md ? 240 : 160 }}
                   popupMatchSelectWidth={false}
-                  options={brands.map((b) => ({ value: b.id, label: <BrandLabel brand={b} /> }))}
+                  options={[
+                    {
+                      value: ALL,
+                      label: (
+                        <Space size={8}>
+                          <span
+                            aria-hidden
+                            style={{
+                              display: 'inline-block',
+                              width: 10,
+                              height: 10,
+                              borderRadius: '50%',
+                              background: `conic-gradient(${brands.map((b) => b.primaryColor).join(',') || '#bfbfbf'})`,
+                            }}
+                          />
+                          <b>Tất cả thương hiệu</b>
+                        </Space>
+                      ),
+                    },
+                    ...brands.map((b) => ({ value: b.id, label: <BrandLabel brand={b} /> })),
+                  ]}
                 />
               </Space>
             ) : brand ? (
@@ -184,27 +200,10 @@ export default function AdminLayout() {
           </Dropdown>
         </Header>
         <Content style={{ padding: screens.md ? 24 : 12 }}>
-          {!brandId && !globalPage ? (
-            <Result
-              status="info"
-              title="Chưa có thương hiệu"
-              subTitle={
-                superAdmin ? 'Hãy tạo thương hiệu đầu tiên để bắt đầu quản lý.' : 'Tài khoản chưa được gán thương hiệu nào, liên hệ quản trị hệ thống.'
-              }
-              extra={
-                superAdmin ? (
-                  <Link to="/brands">
-                    <Button type="primary">Quản lý thương hiệu</Button>
-                  </Link>
-                ) : null
-              }
-            />
-          ) : (
-            // Đổi thương hiệu → dựng lại trang để tải lại dữ liệu
-            <div key={brandId ?? 'none'}>
-              <Outlet />
-            </div>
-          )}
+          {/* Đổi bộ lọc thương hiệu → dựng lại trang để tải lại dữ liệu */}
+          <div key={brandId ?? 'all'}>
+            <Outlet />
+          </div>
         </Content>
       </Layout>
       <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />

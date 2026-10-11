@@ -25,11 +25,12 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { EditOutlined, GiftOutlined, PlusCircleOutlined, StarOutlined, UserOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { EditOutlined, GiftOutlined, StarOutlined, UserOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { api } from '../../api/client';
 import type { CustomerDetail, Paged, Voucher, Wallet } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
+import { BrandSelect, LocationText } from '../../components/BrandBadge';
 import { useRequest } from '../../hooks/useRequest';
 import { useIsManager } from '../../auth/useIsManager';
 import { TierTag } from '../../components/TierTag';
@@ -57,7 +58,8 @@ export default function CustomerDetailPage() {
     ? Math.max(0, Math.min(100, Math.round(((c.totalSpent - tierStart) / Math.max(1, c.nextTier.minSpent - tierStart)) * 100)))
     : 100;
   const wallet = c.wallet;
-  const brandName = brand?.name ?? 'thương hiệu này';
+  const brandName = brand?.name ?? 'tất cả thương hiệu';
+  const totalPoints = c.wallets.reduce((s, w) => s + w.points, 0);
 
   return (
     <>
@@ -107,10 +109,18 @@ export default function CustomerDetailPage() {
           <Card title="Thành viên">
             <Row gutter={[16, 16]}>
               <Col span={12} md={6}>
-                <Statistic title={`Điểm tại ${brandName}`} value={num(wallet?.points ?? 0)} />
+                {brand ? (
+                  <Statistic title={`Điểm tại ${brand.name}`} value={num(wallet?.points ?? 0)} />
+                ) : (
+                  <Statistic title="Tổng điểm các ví" value={num(totalPoints)} />
+                )}
               </Col>
               <Col span={12} md={6}>
-                <Statistic title="Chi tiêu tại thương hiệu" value={money(wallet?.totalSpent ?? 0)} />
+                {brand ? (
+                  <Statistic title="Chi tiêu tại thương hiệu" value={money(wallet?.totalSpent ?? 0)} />
+                ) : (
+                  <Statistic title="Thành viên tại" value={`${c.wallets.length} thương hiệu`} />
+                )}
               </Col>
               <Col span={12} md={6}>
                 <Statistic title="Tổng chi tiêu (mọi TH)" value={money(c.totalSpent)} />
@@ -119,7 +129,7 @@ export default function CustomerDetailPage() {
                 <Statistic title="Tổng lượt ghé" value={c.visitCount} />
               </Col>
             </Row>
-            {!wallet ? (
+            {brand && !wallet ? (
               <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
                 Khách chưa có ví điểm tại {brandName} (ví được tạo khi khách vào Mini App hoặc có hoá đơn đầu tiên).
               </Typography.Paragraph>
@@ -142,14 +152,7 @@ export default function CustomerDetailPage() {
               ) : null}
             </div>
             <Space wrap style={{ marginTop: 16 }}>
-              <Button
-                type="primary"
-                icon={<PlusCircleOutlined />}
-                onClick={() => navigate(`/orders/new?customer=${encodeURIComponent(c.phone || c.memberCode)}`)}
-              >
-                Tạo hoá đơn
-              </Button>
-              <Button icon={<GiftOutlined />} onClick={() => setGiftOpen(true)}>
+              <Button type="primary" icon={<GiftOutlined />} onClick={() => setGiftOpen(true)}>
                 Tặng voucher
               </Button>
               {manager ? (
@@ -182,6 +185,15 @@ export default function CustomerDetailPage() {
                 { title: 'Điểm đã tích', dataIndex: 'lifetimePoints', align: 'right', render: num },
                 { title: 'Chi tiêu', dataIndex: 'totalSpent', align: 'right', render: money },
                 { title: 'Lượt ghé', dataIndex: 'visitCount', align: 'right' },
+                {
+                  title: 'Cơ sở đăng ký',
+                  render: (_, w) => w.homeBranch?.name ?? <Typography.Text type="secondary">—</Typography.Text>,
+                },
+                {
+                  title: 'Ngày đăng ký',
+                  dataIndex: 'registeredAt',
+                  render: (v: string | null) => (v ? date(v) : <Tag color="orange">Chưa đăng ký</Tag>),
+                },
                 { title: 'Ghé gần nhất', dataIndex: 'lastVisitAt', render: datetime },
               ]}
             />
@@ -207,13 +219,20 @@ export default function CustomerDetailPage() {
         <Col span={24}>
           <Card>
             <Typography.Text type="secondary">
-              Hoá đơn, đặt bàn, voucher và lịch sử điểm dưới đây chỉ thuộc thương hiệu <b>{brandName}</b>. Đổi thương hiệu ở thanh trên để xem nơi khác.
+              {brand ? (
+                <>
+                  Hoá đơn, đặt bàn, voucher và lịch sử điểm dưới đây chỉ thuộc thương hiệu <b>{brand.name}</b>. Đổi bộ lọc ở thanh trên để
+                  xem nơi khác.
+                </>
+              ) : (
+                'Đang hiển thị dữ liệu ở tất cả thương hiệu.'
+              )}
             </Typography.Text>
             <Tabs
               items={[
                 {
                   key: 'orders',
-                  label: `Hoá đơn tại ${brandName} (${c.orders.length})`,
+                  label: `Hoá đơn (${c.orders.length})`,
                   children: (
                     <Table
                       size="small"
@@ -224,7 +243,7 @@ export default function CustomerDetailPage() {
                       columns={[
                         { title: 'Mã', dataIndex: 'code', render: (v) => <a>{v}</a> },
                         { title: 'Thời gian', dataIndex: 'createdAt', render: datetime },
-                        { title: 'Chi nhánh', render: (_, o) => o.branch?.name ?? '—' },
+                        { title: 'Cơ sở', render: (_, o) => <LocationText branch={o.branch ? { ...o.branch, brand: o.brand } : null} brandId={o.brandId} /> },
                         { title: 'Tổng tiền', dataIndex: 'total', align: 'right', render: money },
                         { title: 'Điểm', dataIndex: 'pointsEarned', align: 'right', render: (v) => `+${num(v)}` },
                         { title: 'Trạng thái', dataIndex: 'status', render: (s) => <StatusTag kind="order" status={s} /> },
@@ -244,7 +263,7 @@ export default function CustomerDetailPage() {
                       columns={[
                         { title: 'Mã', dataIndex: 'code' },
                         { title: 'Thời gian', dataIndex: 'bookingTime', render: datetime },
-                        { title: 'Chi nhánh', render: (_, b) => b.branch?.name },
+                        { title: 'Cơ sở', render: (_, b) => <LocationText branch={b.branch ? { ...b.branch, brand: b.brand } : null} brandId={b.brandId} /> },
                         { title: 'Số khách', dataIndex: 'partySize', align: 'center' },
                         { title: 'Ghi chú', dataIndex: 'note', ellipsis: true },
                         { title: 'Trạng thái', dataIndex: 'status', render: (s) => <StatusTag kind="booking" status={s} /> },
@@ -407,6 +426,10 @@ function EditCustomerModal({ open, customer, onClose, onSaved }: ModalProps) {
 function PointsModal({ open, customer, onClose, onSaved }: ModalProps) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
+  const { brand, brands } = useAuth();
+  const selBrand: number | undefined = Form.useWatch('brandId', form);
+  const targetBrand = brand?.id ?? selBrand;
+  const targetWallet = customer.wallets.find((w) => w.brandId === targetBrand);
   const [saving, setSaving] = useState(false);
   return (
     <Modal
@@ -420,18 +443,27 @@ function PointsModal({ open, customer, onClose, onSaved }: ModalProps) {
       destroyOnHidden
     >
       <Typography.Paragraph type="secondary">
-        Điểm hiện có tại thương hiệu này: <b>{num(customer.wallet?.points ?? 0)}</b>. Điểm điều chỉnh chỉ ảnh hưởng ví của thương hiệu đang chọn, không ảnh hưởng hạng.
+        {targetBrand ? (
+          <>
+            Điểm hiện có tại {brands.find((b) => b.id === targetBrand)?.name}: <b>{num(targetWallet?.points ?? 0)}</b>.{' '}
+          </>
+        ) : null}
+        Điểm điều chỉnh chỉ ảnh hưởng ví của 1 thương hiệu, không ảnh hưởng hạng.
       </Typography.Paragraph>
       <Form
         form={form}
         layout="vertical"
         preserve={false}
-        initialValues={{ mode: 'add' }}
-        onFinish={async (v: { mode: 'add' | 'sub'; amount: number; description: string }) => {
+        initialValues={{ mode: 'add', brandId: customer.wallets.length === 1 ? customer.wallets[0].brandId : undefined }}
+        onFinish={async (v: { mode: 'add' | 'sub'; amount: number; description: string; brandId?: number }) => {
           setSaving(true);
           try {
             const points = v.mode === 'add' ? v.amount : -v.amount;
-            const res = await api.post<{ wallet: Wallet }>(`/customers/${customer.id}/points`, { points, description: v.description });
+            const res = await api.post<{ wallet: Wallet }>(`/customers/${customer.id}/points`, {
+              points,
+              description: v.description,
+              ...(brand ? {} : { brandId: v.brandId }),
+            });
             message.success(`Đã ${points > 0 ? 'cộng' : 'trừ'} ${num(Math.abs(points))} điểm. Số dư: ${num(res.wallet.points)}`);
             onClose();
             onSaved();
@@ -442,6 +474,11 @@ function PointsModal({ open, customer, onClose, onSaved }: ModalProps) {
           }
         }}
       >
+        {!brand ? (
+          <Form.Item name="brandId" label="Ví của thương hiệu" rules={[{ required: true, message: 'Chọn thương hiệu' }]}>
+            <BrandSelect data-testid="points-brand" />
+          </Form.Item>
+        ) : null}
         <Form.Item name="mode">
           <Radio.Group optionType="button" buttonStyle="solid">
             <Radio value="add">Cộng điểm</Radio>
@@ -461,6 +498,7 @@ function PointsModal({ open, customer, onClose, onSaved }: ModalProps) {
 
 function GiftVoucherModal({ open, customer, onClose, onSaved }: ModalProps) {
   const { message } = App.useApp();
+  const { brandId: brandFilter } = useAuth();
   const [voucherId, setVoucherId] = useState<number | undefined>();
   const [saving, setSaving] = useState(false);
   const { data, loading } = useRequest(() => api.get<Paged<Voucher>>('/vouchers', { pageSize: 100 }), [open], { enabled: open });
@@ -469,7 +507,7 @@ function GiftVoucherModal({ open, customer, onClose, onSaved }: ModalProps) {
     .filter((v) => v.active && (!v.endDate || dayjs(v.endDate).isAfter(now)) && (v.totalQuantity === null || v.issuedCount < v.totalQuantity))
     .map((v) => ({
       value: v.id,
-      label: `${v.title} – ${discountText(v, false)}${v.totalQuantity !== null ? ` (còn ${v.totalQuantity - v.issuedCount})` : ''}`,
+      label: `${v.brand && !brandFilter ? `[${v.brand.name}] ` : ''}${v.title} – ${discountText(v, false)}${v.totalQuantity !== null ? ` (còn ${v.totalQuantity - v.issuedCount})` : ''}`,
     }));
   return (
     <Modal

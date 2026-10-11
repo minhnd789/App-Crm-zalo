@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { App, Button, Card, Col, Form, Image, Input, Modal, Popconfirm, Row, Space, Switch, Table, TimePicker, Typography } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { App, Button, Card, Col, Empty, Form, Image, Input, Modal, Popconfirm, Row, Space, Switch, Table, TimePicker, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { api } from '../api/client';
@@ -8,13 +9,24 @@ import { useRequest } from '../hooks/useRequest';
 import { useIsManager } from '../auth/useIsManager';
 import { invalidateCatalog } from '../hooks/useCatalog';
 import { PageHeader } from '../components/PageHeader';
+import { BrandDot, BrandSelect, BrandTag } from '../components/BrandBadge';
+import { useAuth } from '../auth/AuthContext';
 import { ImageUpload } from '../components/ImageUpload';
-import { errMsg } from '../utils/format';
+import { errMsg, num } from '../utils/format';
 
 export default function BranchesPage() {
   const manager = useIsManager();
   const { message } = App.useApp();
   const { data, loading, reload } = useRequest(() => api.get<Branch[]>('/branches'), []);
+  const { brands, brand: filterBrand } = useAuth();
+  const groups = useMemo(() => {
+    const m = new Map<number, Branch[]>();
+    for (const b of data ?? []) {
+      if (!m.has(b.brandId)) m.set(b.brandId, []);
+      m.get(b.brandId)!.push(b);
+    }
+    return [...m.entries()];
+  }, [data]);
   const [editing, setEditing] = useState<Branch | null>(null);
   const [open, setOpen] = useState(false);
   const changed = () => {
@@ -24,7 +36,9 @@ export default function BranchesPage() {
   return (
     <>
       <PageHeader
-        title="Chi nhánh" scoped
+        title="Cơ sở"
+        scoped
+        subtitle="Mỗi thương hiệu có các cơ sở đặt tên theo vị trí (VD: Quận 1). Khách chọn cơ sở hay đến khi đăng ký thành viên."
         extra={
           manager ? (
             <Button
@@ -35,21 +49,45 @@ export default function BranchesPage() {
                 setOpen(true);
               }}
             >
-              Thêm chi nhánh
+              Thêm cơ sở
             </Button>
           ) : null
         }
       />
-      <Card>
+      {groups.length === 0 && !loading ? (
+        <Card>
+          <Empty description="Chưa có cơ sở" />
+        </Card>
+      ) : null}
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {(groups.length ? groups : [[0, [] as Branch[]] as const]).map(([bid, list]) => {
+          const b = brands.find((x) => x.id === bid);
+          return (
+            <Card
+              key={bid}
+              loading={loading && !data}
+              title={
+                b ? (
+                  <Space>
+                    <BrandDot color={b.primaryColor} size={12} />
+                    {b.name}
+                    <Typography.Text type="secondary" style={{ fontWeight: 400 }}>
+                      {list.length} cơ sở · {num(list.reduce((s, x) => s + (x._count?.members ?? 0), 0))} thành viên đăng ký
+                    </Typography.Text>
+                  </Space>
+                ) : (
+                  'Cơ sở'
+                )
+              }
+            >
         <Table<Branch>
           rowKey="id"
-          loading={loading}
-          dataSource={data}
+                    dataSource={list}
           pagination={false}
           scroll={{ x: 900 }}
           columns={[
             {
-              title: 'Chi nhánh',
+              title: 'Cơ sở',
               render: (_, b) => (
                 <Space>
                   {b.imageUrl ? (
@@ -67,6 +105,11 @@ export default function BranchesPage() {
               ),
             },
             { title: 'Điện thoại', dataIndex: 'phone', render: (v) => v || '—' },
+            {
+              title: 'Thành viên đăng ký',
+              align: 'right',
+              render: (_, b) => <Link to={`/customers?branchId=${b.id}`}>{num(b._count?.members ?? 0)}</Link>,
+            },
             { title: 'Giờ mở cửa', render: (_, b) => `${b.openTime} – ${b.closeTime}` },
             {
               title: 'Hoạt động',
@@ -103,15 +146,15 @@ export default function BranchesPage() {
                       }}
                     />
                     <Popconfirm
-                      title="Xoá chi nhánh?"
-                      description="Chi nhánh đã có đặt bàn/hoá đơn sẽ chỉ bị ngừng hoạt động."
+                      title="Xoá cơ sở?"
+                      description="Cơ sở đã có đặt bàn/hoá đơn/thành viên sẽ chỉ bị ngừng hoạt động."
                       okText="Xoá"
                       okButtonProps={{ danger: true }}
                       cancelText="Không"
                       onConfirm={async () => {
                         try {
                           const r = await api.del<{ deleted: boolean }>(`/branches/${b.id}`);
-                          message.success(r.deleted ? 'Đã xoá chi nhánh' : 'Chi nhánh đã có dữ liệu nên được chuyển sang ngừng hoạt động');
+                          message.success(r.deleted ? 'Đã xoá cơ sở' : 'Cơ sở đã có dữ liệu nên được chuyển sang ngừng hoạt động');
                           changed();
                         } catch (e) {
                           message.error(errMsg(e));
@@ -125,13 +168,17 @@ export default function BranchesPage() {
             },
           ]}
         />
-      </Card>
-      <BranchModal open={open} branch={editing} onClose={() => setOpen(false)} onSaved={changed} />
+            </Card>
+          );
+        })}
+      </Space>
+      <BranchModal open={open} branch={editing} defaultBrandId={filterBrand?.id} onClose={() => setOpen(false)} onSaved={changed} />
     </>
   );
 }
 
 interface BranchForm {
+  brandId?: number;
   name: string;
   address: string;
   phone?: string;
@@ -143,7 +190,19 @@ interface BranchForm {
 
 const hm = (s: string) => dayjs(s, 'HH:mm');
 
-function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch: Branch | null; onClose: () => void; onSaved: () => void }) {
+function BranchModal({
+  open,
+  branch,
+  defaultBrandId,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  branch: Branch | null;
+  defaultBrandId?: number;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [form] = Form.useForm<BranchForm>();
   const { message } = App.useApp();
   const [saving, setSaving] = useState(false);
@@ -161,12 +220,12 @@ function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch
             imageUrl: branch.imageUrl,
             active: branch.active,
           }
-        : { openTime: hm('10:00'), closeTime: hm('22:00'), active: true },
+        : { openTime: hm('10:00'), closeTime: hm('22:00'), active: true, brandId: defaultBrandId },
     );
-  }, [open, branch, form]);
+  }, [open, branch, form, defaultBrandId]);
   return (
     <Modal
-      title={branch ? 'Sửa chi nhánh' : 'Thêm chi nhánh'}
+      title={branch ? 'Sửa cơ sở' : 'Thêm cơ sở'}
       open={open}
       onCancel={onClose}
       okText="Lưu"
@@ -181,6 +240,7 @@ function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch
         layout="vertical"
         onFinish={async (v) => {
           const body = {
+            ...(!branch && !defaultBrandId ? { brandId: v.brandId } : {}),
             name: v.name.trim(),
             address: v.address.trim(),
             phone: v.phone?.trim() || null,
@@ -193,7 +253,7 @@ function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch
           try {
             if (branch) await api.put(`/branches/${branch.id}`, body);
             else await api.post('/branches', body);
-            message.success('Đã lưu chi nhánh');
+            message.success('Đã lưu cơ sở');
             onSaved();
             onClose();
           } catch (e) {
@@ -203,8 +263,22 @@ function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch
           }
         }}
       >
-        <Form.Item name="name" label="Tên chi nhánh" rules={[{ required: true, whitespace: true, message: 'Nhập tên chi nhánh' }]}>
-          <Input maxLength={200} />
+        {branch ? (
+          <Form.Item label="Thương hiệu">
+            <BrandTag brand={branch.brand} brandId={branch.brandId} />
+          </Form.Item>
+        ) : !defaultBrandId ? (
+          <Form.Item name="brandId" label="Thương hiệu" rules={[{ required: true, message: 'Chọn thương hiệu' }]}>
+            <BrandSelect />
+          </Form.Item>
+        ) : null}
+        <Form.Item
+          name="name"
+          label="Tên cơ sở (theo vị trí)"
+          rules={[{ required: true, whitespace: true, message: 'Nhập tên cơ sở' }]}
+          extra="Đặt theo vị trí, VD: Quận 1, Cầu Giấy. Khi hiển thị sẽ kèm tên thương hiệu."
+        >
+          <Input maxLength={200} placeholder="VD: Quận 1" />
         </Form.Item>
         <Form.Item name="address" label="Địa chỉ" rules={[{ required: true, whitespace: true, message: 'Nhập địa chỉ' }]}>
           <Input maxLength={500} />
@@ -229,7 +303,7 @@ function BranchModal({ open, branch, onClose, onSaved }: { open: boolean; branch
         <Form.Item name="imageUrl" label="Ảnh">
           <ImageUpload />
         </Form.Item>
-        <Form.Item name="active" label="Đang hoạt động" valuePropName="checked" extra="Chi nhánh ngừng hoạt động sẽ không hiện khi khách đặt bàn">
+        <Form.Item name="active" label="Đang hoạt động" valuePropName="checked" extra="Cơ sở ngừng hoạt động sẽ không hiện khi khách đặt bàn / đăng ký">
           <Switch />
         </Form.Item>
       </Form>

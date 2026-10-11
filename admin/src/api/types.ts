@@ -20,7 +20,7 @@ export interface Brand {
   _count?: { branches: number; wallets: number };
 }
 
-export type BrandRef = Pick<Brand, 'id' | 'name'> & { code?: string };
+export type BrandRef = Pick<Brand, 'id' | 'name'> & { code?: string; primaryColor?: string };
 
 export interface AdminUser {
   id: number;
@@ -50,6 +50,11 @@ export interface Wallet {
   visitCount: number;
   lastVisitAt: string | null;
   brand?: BrandRef;
+  /** Cơ sở khách chọn khi đăng ký thành viên */
+  homeBranchId?: number | null;
+  homeBranch?: { id: number; name: string } | null;
+  /** null = chưa hoàn tất đăng ký trên Mini App */
+  registeredAt?: string | null;
 }
 
 export interface Paged<T> {
@@ -73,7 +78,9 @@ export interface Tier {
 
 export interface Branch {
   id: number;
-  brandId?: number;
+  brandId: number;
+  brand?: BrandRef;
+  _count?: { members: number };
   name: string;
   address: string;
   phone: string | null;
@@ -85,6 +92,8 @@ export interface Branch {
 
 export interface Promotion {
   id: number;
+  brandId: number;
+  brand?: BrandRef;
   title: string;
   summary: string | null;
   content: string | null;
@@ -100,6 +109,8 @@ export type DiscountType = 'PERCENT' | 'AMOUNT' | 'GIFT';
 
 export interface Voucher {
   id: number;
+  brandId: number;
+  brand?: BrandRef;
   title: string;
   description: string | null;
   imageUrl: string | null;
@@ -125,6 +136,7 @@ export type CustomerVoucherStatus = 'AVAILABLE' | 'USED' | 'EXPIRED';
 
 export interface CustomerVoucher {
   id: number;
+  brandId: number;
   code: string;
   customerId: number;
   voucherId: number;
@@ -160,8 +172,8 @@ export interface Customer {
   createdAt: string;
   /** Ví của thương hiệu đang chọn (null nếu khách chưa có ví ở đây) */
   wallet?: Wallet | null;
-  /** Các thương hiệu khách đã dùng Mini App (danh sách) */
-  brandIds?: number[];
+  /** Ví ở các thương hiệu (danh sách khách) */
+  wallets?: (Wallet & { brand: BrandRef })[];
 }
 
 export interface ZaloAccount {
@@ -179,6 +191,8 @@ export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'ARRIVED' | 'COMPLETED' | 
 
 export interface Booking {
   id: number;
+  brandId: number;
+  brand?: BrandRef;
   code: string;
   customerId: number;
   branchId: number;
@@ -221,7 +235,8 @@ export interface Order {
   cancelledAt?: string | null;
   items?: OrderItem[];
   usedVoucher?: CustomerVoucher | null;
-  brandId?: number;
+  brandId: number;
+  brand?: BrandRef;
   source?: 'ADMIN' | 'POS';
   externalId?: string | null;
   customer?: { id: number; name: string; phone: string | null; tier?: Tier | null; totalSpent?: number };
@@ -273,6 +288,10 @@ export interface Dashboard {
   ordersMonth: number;
   vouchersUsedMonth: number;
   tierDistribution: { id: number; name: string; color: string; count: number }[];
+  /** Doanh thu tháng này theo thương hiệu */
+  revenueByBrand: { id: number; name: string; primaryColor: string; revenue: number; orders: number }[];
+  /** Doanh thu tháng này theo cơ sở */
+  revenueByBranch: { id: number; name: string; brandId: number; brandName: string; revenue: number; orders: number }[];
   revenueByDay: { date: string; revenue: number; orders: number }[];
   recentOrders: Order[];
   upcomingBookings: Booking[];

@@ -9,7 +9,6 @@ import CustomersPage from './pages/customers/CustomersPage';
 import CustomerDetailPage from './pages/customers/CustomerDetailPage';
 import BookingsPage from './pages/bookings/BookingsPage';
 import OrdersPage from './pages/orders/OrdersPage';
-import OrderCreatePage from './pages/orders/OrderCreatePage';
 import VouchersPage from './pages/vouchers/VouchersPage';
 import VoucherDetailPage from './pages/vouchers/VoucherDetailPage';
 import PromotionsPage from './pages/PromotionsPage';
@@ -35,7 +34,6 @@ export default function App() {
         <Route path="customers/:id" element={<CustomerDetailPage />} />
         <Route path="bookings" element={<BookingsPage />} />
         <Route path="orders" element={<OrdersPage />} />
-        <Route path="orders/new" element={<OrderCreatePage />} />
         <Route path="vouchers" element={<VouchersPage />} />
         <Route path="vouchers/:id" element={<VoucherDetailPage />} />
         <Route path="promotions" element={<PromotionsPage />} />

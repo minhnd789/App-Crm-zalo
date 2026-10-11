@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { App, Button, Card, Col, Descriptions, Form, InputNumber, Row, Skeleton, Typography } from 'antd';
+import { App, Button, Card, Col, Descriptions, Form, InputNumber, Row, Skeleton, Space, Typography } from 'antd';
 import { EditOutlined, SaveOutlined } from '@ant-design/icons';
 import { api } from '../api/client';
 import type { Settings } from '../api/types';
@@ -8,17 +8,21 @@ import { useRequest } from '../hooks/useRequest';
 import { useAuth } from '../auth/AuthContext';
 import { useIsSuperAdmin } from '../auth/useIsManager';
 import { PageHeader } from '../components/PageHeader';
-import { BrandDot } from '../components/BrandBadge';
+import { BrandDot, BrandSelect, BrandTag } from '../components/BrandBadge';
 import { errMsg, money, moneyInput } from '../utils/format';
 
 type FormValues = Record<keyof Settings, number>;
 
 export default function SettingsPage() {
   const { message } = App.useApp();
-  const { brand } = useAuth();
+  const { brand: filterBrand, brands } = useAuth();
   const superAdmin = useIsSuperAdmin();
   const [form] = Form.useForm<FormValues>();
-  const { data } = useRequest(() => api.get<Settings>('/settings'), []);
+  // Đang xem tất cả thương hiệu → chọn thương hiệu cần cài đặt
+  const [pickedId, setPickedId] = useState<number | undefined>(filterBrand?.id ?? brands[0]?.id);
+  const brand = filterBrand ?? brands.find((b) => b.id === pickedId) ?? null;
+  const brandQuery = filterBrand ? undefined : brand?.id;
+  const { data } = useRequest(() => api.get<Settings>('/settings', { brandId: brandQuery }), [brandQuery], { enabled: !!brand });
   const [saving, setSaving] = useState(false);
   const ppa = Form.useWatch('pointPerAmount', form);
 
@@ -29,11 +33,36 @@ export default function SettingsPage() {
     form.setFieldsValue(v);
   }, [data, form]);
 
-  if (!data) return <Skeleton active paragraph={{ rows: 10 }} />;
+  const header = (
+    <>
+      <PageHeader
+        title="Cài đặt"
+        subtitle="Cấu hình tích điểm và đặt bàn riêng của từng thương hiệu"
+        extra={
+          filterBrand ? (
+            <BrandTag brand={filterBrand} />
+          ) : (
+            <Space>
+              <Typography.Text type="secondary">Thương hiệu:</Typography.Text>
+              <BrandSelect style={{ width: 240 }} value={pickedId} onChange={setPickedId} data-testid="settings-brand" />
+            </Space>
+          )
+        }
+      />
+    </>
+  );
+
+  if (!brand) return header;
+  if (!data) return (
+    <>
+      {header}
+      <Skeleton active paragraph={{ rows: 10 }} />
+    </>
+  );
 
   return (
     <>
-      <PageHeader title="Cài đặt" scoped subtitle="Cấu hình tích điểm và đặt bàn riêng của thương hiệu đang chọn" />
+      {header}
       <Form
         form={form}
         layout="vertical"
@@ -42,8 +71,8 @@ export default function SettingsPage() {
           try {
             const body: Record<string, string> = {};
             for (const [k, val] of Object.entries(v)) body[k] = val === null || val === undefined ? '' : String(val);
-            await api.put<Settings>('/settings', body);
-            message.success('Đã lưu cài đặt');
+            await api.put<Settings>(`/settings${brandQuery ? `?brandId=${brandQuery}` : ''}`, body);
+            message.success(`Đã lưu cài đặt cho ${brand.name}`);
           } catch (e) {
             message.error(errMsg(e));
           } finally {

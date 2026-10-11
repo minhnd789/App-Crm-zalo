@@ -62,7 +62,7 @@ export default function BrandsPage() {
     <>
       <PageHeader
         title="Thương hiệu"
-        subtitle="Mỗi thương hiệu có Mini App + Zalo OA, chi nhánh, voucher, cài đặt tích điểm riêng. Khách hàng và hạng dùng chung."
+        subtitle="Mỗi thương hiệu có Mini App + Zalo OA, các cơ sở, voucher, cài đặt tích điểm riêng. Khách hàng và hạng dùng chung."
         extra={
           <Button
             type="primary"
@@ -126,7 +126,7 @@ export default function BrandsPage() {
                 </div>
               ),
             },
-            { title: 'Chi nhánh', align: 'right', render: (_, b) => num(b._count?.branches ?? 0) },
+            { title: 'Cơ sở', align: 'right', render: (_, b) => num(b._count?.branches ?? 0) },
             { title: 'Thành viên', align: 'right', render: (_, b) => num(b._count?.wallets ?? 0) },
             {
               title: 'Hoạt động',

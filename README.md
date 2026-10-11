@@ -90,6 +90,8 @@ cd mini-app && cp .env.example .env && npm install && npm run dev
 
 Chạy kiểm thử backend: `cd backend && npm test`.
 
+Hoá đơn chỉ đến từ phần mềm bán hàng (r_keeper, kết nối làm sau). Để thử tích điểm khi dev: đăng ký thành viên trên Mini App rồi chạy `cd backend && npm run db:demo-orders` (tạo hoá đơn mẫu cho các khách đã đăng ký).
+
 ## Triển khai thật
 
 1. **Đăng ký Mini App cho từng thương hiệu** tại <https://mini.zalo.me>, liên kết với Zalo OA của thương hiệu. Xin quyền *Thông tin người dùng* và *Số điện thoại*.

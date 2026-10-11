@@ -8,6 +8,7 @@ import { useRequest } from '../../hooks/useRequest';
 import { useIsManager } from '../../auth/useIsManager';
 import { StatusTag, VOUCHER_SOURCE } from '../../components/StatusTag';
 import { TierTag } from '../../components/TierTag';
+import { BrandTag } from '../../components/BrandBadge';
 import { date, datetime, money, num } from '../../utils/format';
 import { discountText } from '../../utils/voucher';
 import { GiftBulkModal, VoucherFormModal } from './VoucherModals';
@@ -48,7 +49,12 @@ export default function VoucherDetailPage() {
         <Col xs={24} lg={10}>
           <Card
             title={v.title}
-            extra={v.active ? <Tag color="green">Đang hoạt động</Tag> : <Tag>Ngừng hoạt động</Tag>}
+            extra={
+              <Space size={4}>
+                <BrandTag brand={v.brand} brandId={v.brandId} />
+                {v.active ? <Tag color="green">Đang hoạt động</Tag> : <Tag>Ngừng hoạt động</Tag>}
+              </Space>
+            }
             cover={v.imageUrl ? <Image src={v.imageUrl} height={180} style={{ objectFit: 'cover' }} /> : undefined}
           >
             <Descriptions column={1} size="small" styles={{ label: { width: 150 } }}>

@@ -7,6 +7,9 @@ import type { Paged, Voucher } from '../../api/types';
 import { useRequest } from '../../hooks/useRequest';
 import { useIsManager } from '../../auth/useIsManager';
 import { PageHeader } from '../../components/PageHeader';
+import { BrandTag } from '../../components/BrandBadge';
+import { useAuth } from '../../auth/AuthContext';
+import type { ColumnsType } from 'antd/es/table';
 import { TierTag } from '../../components/TierTag';
 import { date, errMsg, num } from '../../utils/format';
 import { discountText } from '../../utils/voucher';
@@ -14,6 +17,7 @@ import { GiftBulkModal, VoucherCheckModal, VoucherFormModal } from './VoucherMod
 
 export default function VouchersPage() {
   const manager = useIsManager();
+  const { allBrands } = useAuth();
   const { message } = App.useApp();
   const [q, setQ] = useState('');
   const [type, setType] = useState<'' | 'free' | 'points'>('');
@@ -92,7 +96,7 @@ export default function VouchersPage() {
           rowKey="id"
           loading={loading}
           dataSource={data?.items}
-          scroll={{ x: 1100 }}
+          scroll={{ x: allBrands ? 1260 : 1100 }}
           pagination={{
             current: page,
             pageSize,
@@ -105,6 +109,9 @@ export default function VouchersPage() {
             },
           }}
           columns={[
+            ...(allBrands
+              ? ([{ title: 'Thương hiệu', width: 160, render: (_, v) => <BrandTag brand={v.brand} brandId={v.brandId} /> }] as ColumnsType<Voucher>)
+              : []),
             {
               title: 'Voucher',
               render: (_, v) => (
@@ -195,7 +202,7 @@ export default function VouchersPage() {
       </Card>
       <VoucherFormModal open={formOpen} voucher={editing} onClose={() => setFormOpen(false)} onSaved={() => reload()} />
       <GiftBulkModal voucher={gift} onClose={() => setGift(null)} onDone={() => reload()} />
-      <VoucherCheckModal open={checkOpen} onClose={() => setCheckOpen(false)} />
+      <VoucherCheckModal open={checkOpen} onClose={() => setCheckOpen(false)} onRedeemed={() => reload()} />
     </>
   );
 }

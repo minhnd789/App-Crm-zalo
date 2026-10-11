@@ -7,6 +7,9 @@ import type { Promotion } from '../api/types';
 import { useRequest } from '../hooks/useRequest';
 import { useIsManager } from '../auth/useIsManager';
 import { PageHeader } from '../components/PageHeader';
+import { BrandSelect, BrandTag } from '../components/BrandBadge';
+import { useAuth } from '../auth/AuthContext';
+import type { ColumnsType } from 'antd/es/table';
 import { ImageUpload } from '../components/ImageUpload';
 import { date, errMsg } from '../utils/format';
 
@@ -20,6 +23,7 @@ function periodStatus(p: Promotion) {
 
 export default function PromotionsPage() {
   const manager = useIsManager();
+  const { allBrands } = useAuth();
   const { message } = App.useApp();
   const { data, loading, reload, setData } = useRequest(() => api.get<Promotion[]>('/promotions'), []);
   const [editing, setEditing] = useState<Promotion | null>(null);
@@ -61,6 +65,9 @@ export default function PromotionsPage() {
           dataSource={data}
           scroll={{ x: 900 }}
           columns={[
+            ...(allBrands
+              ? ([{ title: 'Thương hiệu', width: 140, render: (_, p) => <BrandTag brand={p.brand} brandId={p.brandId} /> }] as ColumnsType<Promotion>)
+              : []),
             {
               title: 'Chương trình',
               render: (_, p) => (
@@ -70,7 +77,7 @@ export default function PromotionsPage() {
                   ) : (
                     <div style={{ width: 88, height: 56, background: '#f0f0f0', borderRadius: 4 }} />
                   )}
-                  <div style={{ maxWidth: 380 }}>
+                  <div style={{ maxWidth: 300 }}>
                     <Typography.Text strong>{p.title}</Typography.Text>
                     {p.featured ? <StarFilled style={{ color: '#faad14', marginLeft: 6 }} title="Nổi bật" /> : null}
                     <div>
@@ -145,6 +152,7 @@ export default function PromotionsPage() {
 }
 
 interface PromotionForm {
+  brandId?: number;
   title: string;
   summary?: string;
   content?: string;
@@ -157,6 +165,7 @@ interface PromotionForm {
 function PromotionModal({ open, promotion, onClose, onSaved }: { open: boolean; promotion: Promotion | null; onClose: () => void; onSaved: () => void }) {
   const [form] = Form.useForm<PromotionForm>();
   const { message } = App.useApp();
+  const { brandId: brandFilter } = useAuth();
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -193,6 +202,7 @@ function PromotionModal({ open, promotion, onClose, onSaved }: { open: boolean; 
         layout="vertical"
         onFinish={async (v) => {
           const body = {
+            ...(!promotion && !brandFilter ? { brandId: v.brandId } : {}),
             title: v.title.trim(),
             summary: v.summary?.trim() || null,
             content: v.content?.trim() ? v.content : null,
@@ -216,6 +226,15 @@ function PromotionModal({ open, promotion, onClose, onSaved }: { open: boolean; 
           }
         }}
       >
+        {promotion ? (
+          <Form.Item label="Thương hiệu">
+            <BrandTag brand={promotion.brand} brandId={promotion.brandId} />
+          </Form.Item>
+        ) : !brandFilter ? (
+          <Form.Item name="brandId" label="Thương hiệu" rules={[{ required: true, message: 'Chọn thương hiệu' }]}>
+            <BrandSelect />
+          </Form.Item>
+        ) : null}
         <Form.Item name="title" label="Tiêu đề" rules={[{ required: true, whitespace: true, message: 'Nhập tiêu đề' }]}>
           <Input maxLength={200} />
         </Form.Item>

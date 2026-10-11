@@ -8,10 +8,12 @@ interface AuthState {
   checking: boolean;
   /** Thương hiệu được phép thao tác */
   brands: Brand[];
-  /** Thương hiệu đang chọn (null khi hệ thống chưa có thương hiệu nào) */
+  /** Bộ lọc thương hiệu đang chọn. null = tất cả thương hiệu (chỉ tài khoản toàn hệ thống) */
   brand: Brand | null;
   brandId: number | null;
-  setBrandId: (id: number) => void;
+  /** true khi đang xem tất cả thương hiệu */
+  allBrands: boolean;
+  setBrandId: (id: number | null) => void;
   /** Tải lại /auth/me (vd sau khi sửa thương hiệu) */
   refresh: () => Promise<void>;
   login: (username: string, password: string) => Promise<AdminMe>;
@@ -20,11 +22,11 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-/** Chọn thương hiệu hợp lệ: tài khoản gắn thương hiệu → cố định; còn lại → giữ lựa chọn cũ nếu còn, không thì cái đầu tiên */
+/** Bộ lọc hợp lệ: tài khoản gắn thương hiệu → cố định; còn lại → giữ lựa chọn cũ nếu còn, không thì "tất cả" */
 function resolveBrand(me: AdminMe, preferred: number | null): number | null {
   if (me.brandId) return me.brandId;
   if (preferred && me.brands.some((b) => b.id === preferred)) return preferred;
-  return me.brands.find((b) => b.active)?.id ?? me.brands[0]?.id ?? null;
+  return null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -77,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setBrandId = useCallback(
-    (id: number) => {
+    (id: number | null) => {
       if (user?.brandId && user.brandId !== id) return;
       brandStore.set(id);
       setBrandIdState(id);
@@ -89,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const brand = useMemo(() => brands.find((b) => b.id === brandId) ?? null, [brands, brandId]);
 
   const value = useMemo(
-    () => ({ user, checking, brands, brand, brandId, setBrandId, refresh, login, logout }),
+    () => ({ user, checking, brands, brand, brandId, allBrands: brandId === null, setBrandId, refresh, login, logout }),
     [user, checking, brands, brand, brandId, setBrandId, refresh, login, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
