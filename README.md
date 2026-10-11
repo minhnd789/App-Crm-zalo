@@ -44,7 +44,8 @@ dùng chung 1 backend, 1 database và 1 trang quản trị. Hệ thống gồm 3
 - Tổng quan: doanh thu, khách mới, đặt bàn hôm nay, phân bố hạng
 - Quản lý khách hàng: hồ sơ, ghi chú, cộng/trừ điểm thủ công, tặng voucher
 - Quản lý đặt bàn: xác nhận / huỷ / khách đã đến / không đến (tự nhắn tin qua OA nếu cấu hình)
-- **Tạo hoá đơn tích điểm**: tìm khách theo SĐT hoặc quét QR → nhập món hoặc tổng tiền → áp voucher → tự cộng điểm và thăng hạng
+- **Hoá đơn & tích điểm**: hoá đơn chỉ đến từ phần mềm bán hàng r_keeper (qua DCorp – kết nối làm sau); trang quản trị xem lịch sử hoá đơn, huỷ để điều chỉnh. Khi đồng bộ, hệ thống tự cộng điểm và xét hạng
+- **Xác nhận dùng voucher tại quầy**: nhân viên nhập/kiểm tra mã voucher khách đưa và đánh dấu đã dùng
 - Quản lý voucher (miễn phí / đổi điểm, giới hạn số lượng, hạng tối thiểu, tặng hàng loạt), kiểm tra mã voucher
 - Quản lý chương trình ưu đãi, hạng thành viên, chi nhánh, cấu hình tích điểm, tài khoản nhân viên (phân quyền Quản lý / Nhân viên)
 

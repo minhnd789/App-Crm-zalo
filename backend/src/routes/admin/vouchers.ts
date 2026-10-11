@@ -85,6 +85,28 @@ vouchersRouter.get('/check', async (req, res) => {
   });
 });
 
+/** Xác nhận khách dùng voucher tại quầy (khi chưa có kết nối phần mềm bán hàng) */
+vouchersRouter.post('/redeem', async (req, res) => {
+  const { code } = z.object({ code: z.string().trim().min(1, 'Nhập mã voucher') }).parse(req.body);
+  await expireVouchers();
+  const cv = await prisma.customerVoucher.findUnique({ where: { code: code.toUpperCase() } });
+  if (!cv) throw notFound('Mã voucher không tồn tại');
+  assertBrandAccess(req, cv.brandId, 'Mã voucher không tồn tại trong thương hiệu này');
+  await brandForWrite(req, cv.brandId);
+  // updateMany có điều kiện để 2 nhân viên không xác nhận cùng 1 voucher 2 lần
+  const used = await prisma.customerVoucher.updateMany({
+    where: { id: cv.id, status: 'AVAILABLE', expiresAt: { gte: new Date() } },
+    data: { status: 'USED', usedAt: new Date() },
+  });
+  if (used.count === 0) throw badRequest(cv.status === 'USED' ? 'Voucher đã được sử dụng' : 'Voucher đã hết hạn');
+  res.json(
+    await prisma.customerVoucher.findUniqueOrThrow({
+      where: { id: cv.id },
+      include: { voucher: true, customer: { select: { id: true, name: true, phone: true } } },
+    }),
+  );
+});
+
 vouchersRouter.get('/:id', async (req, res) => {
   const v = await prisma.voucher.findUnique({ where: { id: idParam(req.params.id) }, include: { minTier: true } });
   if (!v) throw notFound('Voucher không tồn tại');

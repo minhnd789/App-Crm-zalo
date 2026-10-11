@@ -1,12 +1,10 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { notFound } from '../../lib/errors.js';
 import { idParam, paging } from '../../lib/http.js';
 import { assertBrandAccess, brandForWrite, brandWhere, requireManager } from '../../lib/auth.js';
-import { badRequest } from '../../lib/errors.js';
-import { cancelOrder, createOrder, orderInclude } from '../../services/orders.js';
+import { cancelOrder, orderInclude } from '../../services/orders.js';
 
 export const ordersRouter = Router();
 
@@ -54,34 +52,7 @@ ordersRouter.get('/:id', async (req, res) => {
   res.json(o);
 });
 
-const itemSchema = z.object({
-  name: z.string().trim().min(1).max(200),
-  quantity: z.number().int().min(1),
-  price: z.number().int().min(0),
-});
-
-const createSchema = z
-  .object({
-    customerId: z.number().int().positive(),
-    /** Cơ sở xuất hoá đơn – xác định thương hiệu tích điểm */
-    branchId: z.number().int().positive(),
-    bookingId: z.number().int().positive().nullable().optional(),
-    items: z.array(itemSchema).default([]),
-    /** Dùng khi không nhập từng món – chỉ nhập tổng tiền từ máy POS */
-    subtotal: z.number().int().min(0).optional(),
-    discount: z.number().int().min(0).default(0),
-    voucherCode: z.string().trim().nullable().optional(),
-    note: z.string().max(1000).nullable().optional(),
-  })
-  .refine((v) => v.items.length > 0 || (v.subtotal ?? 0) > 0, { message: 'Nhập danh sách món hoặc tổng tiền', path: ['items'] });
-
-ordersRouter.post('/', async (req, res) => {
-  const body = createSchema.parse(req.body);
-  const branch = await prisma.branch.findUnique({ where: { id: body.branchId } });
-  if (!branch) throw badRequest('Cơ sở không tồn tại');
-  const brand = await brandForWrite(req, branch.brandId);
-  res.status(201).json(await createOrder(brand, body, req.admin!.id));
-});
+// Hoá đơn chỉ được tạo từ phần mềm bán hàng (r_keeper qua DCorp) – trang quản trị chỉ xem và huỷ để điều chỉnh.
 
 ordersRouter.post('/:id/cancel', requireManager, async (req, res) => {
   const id = idParam(req.params.id);

@@ -131,7 +131,7 @@ Thao tác trên 1 bản ghi (sửa, huỷ, đổi trạng thái) tự lấy thư
 | POST | `/auth/change-password` | `{ oldPassword, newPassword }` |
 | GET 🏷 | `/dashboard?branchId=` | `{ revenueByBrand: {id,name,primaryColor,revenue,orders}[], revenueByBranch: {id,name,brandId,brandName,revenue,orders}[] (tháng này), totalCustomers, newCustomersToday, bookingsToday, pendingBookings, revenueToday, ordersToday, revenueMonth, ordersMonth, vouchersUsedMonth, tierDistribution: {id,name,color,count}[], revenueByDay: {date,revenue,orders}[], recentOrders, upcomingBookings }` |
 | GET 🏷 | `/customers?q=&tierId=&branchId=&registered=true\|false&birthMonth=1..12&sort=createdAt\|totalSpent\|lastVisitAt&page=` | Phân trang khách (+ `tier`, `wallets[]` kèm `brand`, `homeBranch`, `registeredAt`; `wallet` = ví thương hiệu đang lọc). Khi lọc thương hiệu/cơ sở/đăng ký: chỉ khách là thành viên phù hợp. `branchId` = cơ sở khách chọn khi đăng ký |
-| GET 🏷 | `/customers/lookup?q=<SĐT hoặc mã thành viên>&brandId=` | (cần thương hiệu: bộ lọc hoặc `brandId` – thương hiệu của cơ sở đang xuất hoá đơn) Khách + `wallet` + `vouchers` (AVAILABLE) + `bookings` (đang mở) **của thương hiệu đang chọn**. 400 nếu `q` rỗng, 404 nếu không có |
+| GET 🏷 | `/customers/lookup?q=<SĐT hoặc mã thành viên>&brandId=` | Tra cứu nhanh khách tại quầy (cần thương hiệu: bộ lọc hoặc `brandId`) Khách + `wallet` + `vouchers` (AVAILABLE) + `bookings` (đang mở) **của thương hiệu đang chọn**. 400 nếu `q` rỗng, 404 nếu không có |
 | GET | `/customers/:id` | Chi tiết: `tier, nextTier, amountToNextTier, wallets[] (+brand), zaloAccounts[] (+brand) – tài khoản gắn thương hiệu chỉ thấy ví/tài khoản của thương hiệu mình, wallet` (ví thương hiệu đang chọn), `orders, bookings, vouchers, pointTransactions` (lọc theo thương hiệu đang chọn nếu có X-Brand-Id, mỗi bản ghi kèm `brand`) |
 | PUT | `/customers/:id` | `{ name?, phone?, birthday?, gender?, note? }` |
 | POST 🏷 | `/customers/:id/points` 🔒 | `{ points: số +/-, description, brandId? }` → `{ wallet }` (ví thương hiệu đang chọn; không ảnh hưởng hạng) |
@@ -141,10 +141,11 @@ Thao tác trên 1 bản ghi (sửa, huỷ, đổi trạng thái) tự lấy thư
 | PATCH 🏷 | `/bookings/:id` | `{ status?, adminNote?, notify?: boolean (mặc định true – nhắn tin OA cho khách) }` – luồng: PENDING→CONFIRMED/CANCELLED; CONFIRMED→ARRIVED/CANCELLED/NO_SHOW/PENDING; ARRIVED→COMPLETED/CONFIRMED; CANCELLED→PENDING; NO_SHOW→CONFIRMED (cho phép hoàn tác thao tác nhầm) |
 | GET 🏷 | `/orders?q=&customerId=&branchId=&status=&from=&to=&page=` | Phân trang + `sumTotal`, `sumPoints` |
 | GET 🏷 | `/orders/:id` | Chi tiết |
-| POST 🏷 | `/orders` | `{ customerId, branchId (bắt buộc – cơ sở xuất hoá đơn, quyết định thương hiệu), bookingId?, items: [{name, quantity, price}], subtotal? (khi không nhập món), discount?, voucherCode?, note? }` → `{ order, tierUp, tier, balance }` (balance = điểm ví thương hiệu sau khi cộng). `bookingId` phải đang PENDING/CONFIRMED/ARRIVED và sẽ chuyển sang COMPLETED |
+| — | ~~`POST /orders`~~ | **Không có** – hoá đơn chỉ được đồng bộ từ phần mềm bán hàng (r_keeper qua DCorp, làm sau). Service `createOrder` (source `POS`, `externalId` chống trùng) đã sẵn sàng cho bộ đồng bộ |
 | POST 🏷 | `/orders/:id/cancel` 🔒 | Huỷ hoá đơn, hoàn điểm |
 | GET 🏷 | `/vouchers?q=&type=free\|points&page=` | Phân trang voucher (+ `usedCount`) |
 | GET 🏷 | `/vouchers/check?code=&amount=` | Kiểm tra mã voucher của khách → `CustomerVoucher & { valid, reason, discount }` |
+| POST 🏷 | `/vouchers/redeem` | Xác nhận khách dùng voucher tại quầy `{ code }` → `CustomerVoucher` (status USED). 400 nếu đã dùng/hết hạn, 404 nếu không có / khác thương hiệu |
 | GET 🏷 | `/vouchers/:id` | Chi tiết + `stats` + `recent` |
 | POST/PUT/DELETE 🏷 | `/vouchers`, `/vouchers/:id` 🔒 | CRUD (xoá voucher đã phát sẽ chỉ ngừng hoạt động) |
 | POST 🏷 | `/vouchers/:id/gift` 🔒 | `{ customerIds?: number[], tierId?, branchId? (khách đã đăng ký tại cơ sở) }` → `{ success, failed, errors }` |

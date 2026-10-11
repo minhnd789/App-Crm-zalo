@@ -21,7 +21,22 @@ execSync('npx tsx prisma/seed.ts', { stdio: 'ignore', env: process.env });
 
 const { createApp } = await import('../src/app.js');
 const { prisma } = await import('../src/db.js');
+const { createOrder } = await import('../src/services/orders.js');
 const app = createApp();
+
+/**
+ * Hoá đơn chỉ đến từ phần mềm bán hàng (r_keeper/DCorp) – trang quản trị không tạo hoá đơn.
+ * Test gọi thẳng service mà bộ đồng bộ POS sẽ dùng.
+ */
+async function posOrder(brandId: number, input: Record<string, unknown>) {
+  const brand = await prisma.brand.findUniqueOrThrow({ where: { id: brandId } });
+  try {
+    const r = await createOrder(brand, { items: [], ...input, source: 'POS' } as never, null);
+    return { status: 201, body: JSON.parse(JSON.stringify(r)) };
+  } catch (e: any) {
+    return { status: e.status ?? 500, body: { error: e.message } };
+  }
+}
 
 let adminToken = '';
 let tokenA = ''; // token Mini App thương hiệu A
@@ -172,10 +187,7 @@ test('hoá đơn ở thương hiệu A: dùng voucher, cộng điểm ví A, c�
   const cv = lookup.body.vouchers[0]; // giảm 50.000đ cho hoá đơn từ 300.000đ
   const booking = lookup.body.bookings[0];
 
-  const res = await request(app)
-    .post('/api/admin/orders')
-    .set(admin(brandA))
-    .send({
+  const res = await posOrder(brandA, {
       customerId,
       branchId: branchA,
       bookingId: booking.id,
@@ -184,6 +196,7 @@ test('hoá đơn ở thương hiệu A: dùng voucher, cộng điểm ví A, c�
         { name: 'Nước ngọt', quantity: 4, price: 25_000 },
       ],
       voucherCode: cv.code,
+      externalId: 'RK-0001',
     });
   assert.equal(res.status, 201, JSON.stringify(res.body));
   const { order, tierUp } = res.body;
@@ -192,7 +205,7 @@ test('hoá đơn ở thương hiệu A: dùng voucher, cộng điểm ví A, c�
   assert.equal(order.pointsEarned, 455);
   assert.equal(tierUp, false); // 4,55tr < 5tr
 
-  const second = await request(app).post('/api/admin/orders').set(admin(brandA)).send({ customerId, branchId: branchA, subtotal: 1_000_000 });
+  const second = await posOrder(brandA, { customerId, branchId: branchA, subtotal: 1_000_000 });
   assert.equal(second.body.order.pointsEarned, 100, 'tính theo hạng tại thời điểm thanh toán (x1)');
   assert.equal(second.body.tierUp, true);
   assert.equal(second.body.tier.code, 'SILVER'); // 5,55tr ≥ 5tr
@@ -203,8 +216,15 @@ test('hoá đơn ở thương hiệu A: dùng voucher, cộng điểm ví A, c�
   assert.equal(me.tier.code, 'SILVER');
 
   // Chi nhánh / voucher của thương hiệu khác bị từ chối
-  const wrong = await request(app).post('/api/admin/orders').set(admin(brandA)).send({ customerId, branchId: branchB, subtotal: 100_000 });
-  assert.equal(wrong.status, 403, 'đang lọc thương hiệu A thì không xuất hoá đơn ở cơ sở của B');
+  const wrong = await posOrder(brandA, { customerId, branchId: branchB, subtotal: 100_000 });
+  assert.equal(wrong.status, 400, 'cơ sở phải thuộc thương hiệu của hoá đơn');
+
+  // Mã hoá đơn POS không được đồng bộ trùng
+  const dup = await posOrder(brandA, { customerId, branchId: branchA, subtotal: 100_000, externalId: 'RK-0001' });
+  assert.notEqual(dup.status, 201);
+
+  // Trang quản trị không còn tạo hoá đơn
+  assert.equal((await request(app).post('/api/admin/orders').set(admin(brandA)).send({ customerId, branchId: branchA, subtotal: 1 })).status, 404);
 });
 
 test('dùng Mini App thương hiệu B, đăng ký cùng SĐT → gộp thành 1 khách', async () => {
@@ -246,7 +266,7 @@ test('dùng Mini App thương hiệu B, đăng ký cùng SĐT → gộp thành 1
 test('hoá đơn ở thương hiệu B: điểm vào ví B theo hệ số hạng chung, voucher A không dùng được', async () => {
   const freeA = (await request(app).get('/api/app/my-vouchers').set(appA())).body;
   assert.ok(freeA.length > 0);
-  const res = await request(app).post('/api/admin/orders').set(admin(brandB)).send({ customerId, branchId: branchB, subtotal: 1_000_000 });
+  const res = await posOrder(brandB, { customerId, branchId: branchB, subtotal: 1_000_000 });
   assert.equal(res.status, 201);
   assert.equal(res.body.order.pointsEarned, 120, 'hạng Bạc x1.2');
 
@@ -266,10 +286,7 @@ test('hoá đơn ở thương hiệu B: điểm vào ví B theo hệ số hạng
 test('voucher của thương hiệu A không áp được cho hoá đơn thương hiệu B', async () => {
   const claim = await request(app).post(`/api/app/vouchers/${(await request(app).get('/api/app/vouchers?type=points').set(appA())).body.find((v: any) => v.discountType === 'GIFT').id}/claim`).set(appA());
   assert.equal(claim.status, 201);
-  const res = await request(app)
-    .post('/api/admin/orders')
-    .set(admin(brandB))
-    .send({ customerId, branchId: branchB, subtotal: 500_000, voucherCode: claim.body.code });
+  const res = await posOrder(brandB, { customerId, branchId: branchB, subtotal: 500_000, voucherCode: claim.body.code });
   assert.equal(res.status, 400);
   assert.match(res.body.error, /thương hiệu/);
 });
@@ -387,10 +404,6 @@ test('quản trị trung tâm: xem tất cả thương hiệu và lọc theo th�
   assert.equal(noBrand.status, 400);
   const promo = await request(app).post('/api/admin/promotions').set(central()).send({ title: 'KM B', brandId: brandB });
   assert.equal(promo.body.brandId, brandB);
-  // Hoá đơn ở chế độ tất cả: thương hiệu lấy theo cơ sở
-  const order = await request(app).post('/api/admin/orders').set(central()).send({ customerId, branchId: branchB, subtotal: 200_000 });
-  assert.equal(order.status, 201);
-  assert.equal(order.body.order.brandId, brandB);
   // Lookup cần thương hiệu
   assert.equal((await request(app).get('/api/admin/customers/lookup?q=0901234567').set(central())).status, 400);
   assert.equal((await request(app).get(`/api/admin/customers/lookup?q=0901234567&brandId=${brandB}`).set(central())).status, 200);
@@ -402,4 +415,16 @@ test('tặng voucher theo cơ sở khách đã đăng ký', async () => {
   assert.equal(r.body.success, 1);
   const none = await request(app).post(`/api/admin/vouchers/${v.id}/gift`).set(central()).send({ branchId: branchB + 1 });
   assert.equal(none.body.success, 0, 'cơ sở Thủ Đức chưa có khách đăng ký');
+});
+
+test('xác nhận dùng voucher tại quầy', async () => {
+  const free = (await request(app).get('/api/app/vouchers?type=free').set(appB())).body[0];
+  const cv = (await request(app).post(`/api/app/vouchers/${free.id}/claim`).set(appB())).body;
+  assert.equal((await request(app).post('/api/admin/vouchers/redeem').set(admin(brandA)).send({ code: cv.code })).status, 404, 'khác thương hiệu');
+  const ok = await request(app).post('/api/admin/vouchers/redeem').set(central()).send({ code: cv.code.toLowerCase() });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.status, 'USED');
+  assert.equal((await request(app).post('/api/admin/vouchers/redeem').set(central()).send({ code: cv.code })).status, 400);
+  const used = (await request(app).get('/api/app/my-vouchers?status=USED').set(appB())).body;
+  assert.ok(used.some((v: any) => v.code === cv.code));
 });
