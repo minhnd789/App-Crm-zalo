@@ -8,6 +8,7 @@ import type {
   CustomerVoucher,
   CustomerVoucherStatus,
   LoginInput,
+  LinkPhoneResponse,
   LoginResponse,
   Me,
   Order,
@@ -36,7 +37,7 @@ export const api = {
   getMe: () => request<Me>("/me"),
   updateMe: (body: UpdateProfileInput) => request<Me>("/me", { method: "PUT", body }),
   linkPhone: (body: { token?: string; accessToken?: string; phone?: string }) =>
-    request<Me>("/me/phone", { method: "POST", body }),
+    request<LinkPhoneResponse>("/me/phone", { method: "POST", body }),
   getPoints: (page = 1, pageSize = 20) =>
     request<Paginated<PointTransaction>>("/me/points", { query: { page, pageSize } }),
 

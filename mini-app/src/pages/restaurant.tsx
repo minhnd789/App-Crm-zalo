@@ -5,32 +5,33 @@ import { ErrorState, Loading } from "@/components/states";
 import { useAppData } from "@/hooks/use-app-data";
 import { useNotify } from "@/hooks/use-notify";
 import { splitLines } from "@/utils/format";
-import { OA_ID } from "@/utils/env";
-import { callPhone, openOAChat } from "@/utils/zalo";
+import { callPhone, openOAChat, resolveOaId } from "@/utils/zalo";
 
 export default function RestaurantPage() {
   const { config, branches, loading, error, reload } = useAppData();
   const notify = useNotify();
+  const brand = config?.brand;
+  const oaId = resolveOaId(brand?.zaloOaId);
 
   return (
-    <AppPage back title="Thông tin nhà hàng">
+    <AppPage back title={brand?.name ?? "Thông tin nhà hàng"}>
       {loading ? (
         <Loading />
-      ) : error || !config ? (
+      ) : error || !config || !brand ? (
         <ErrorState message="Không tải được thông tin nhà hàng" onRetry={reload} />
       ) : (
         <div className="page-pad">
           <div className="restaurant-hero">
             <div className="restaurant-hero__logo">
-              <AppIcon name="utensils" size={30} />
+              {brand.logoUrl ? <img src={brand.logoUrl} alt={brand.name} /> : <AppIcon name="utensils" size={30} />}
             </div>
-            <div className="restaurant-hero__name">{config.restaurantName}</div>
+            <div className="restaurant-hero__name">{brand.name}</div>
           </div>
 
           <div className="card">
             <h3 className="card__title">Giới thiệu</h3>
-            {splitLines(config.about).length ? (
-              splitLines(config.about).map((l, i) => (
+            {splitLines(brand.about).length ? (
+              splitLines(brand.about).map((l, i) => (
                 <p key={i} className="card__text">
                   {l}
                 </p>
@@ -42,24 +43,24 @@ export default function RestaurantPage() {
 
           <div className="card">
             <h3 className="card__title">Liên hệ</h3>
-            {config.hotline ? (
+            {brand.hotline ? (
               <Button
                 fullWidth
                 prefixIcon={<AppIcon name="phone" size={18} />}
-                onClick={() => callPhone(config.hotline)}
+                onClick={() => callPhone(brand.hotline!)}
               >
-                Gọi hotline {config.hotline}
+                Gọi hotline {brand.hotline}
               </Button>
             ) : (
               <p className="card__text muted">Chưa có số hotline.</p>
             )}
-            {OA_ID && (
+            {oaId && (
               <div style={{ marginTop: 8 }}>
                 <Button
                   fullWidth
                   variant="secondary"
                   prefixIcon={<AppIcon name="chat" size={18} />}
-                  onClick={() => openOAChat().catch((e) => notify.error(e))}
+                  onClick={() => openOAChat(oaId).catch((e) => notify.error(e))}
                 >
                   Chat với nhà hàng
                 </Button>

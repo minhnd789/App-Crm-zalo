@@ -10,13 +10,16 @@ import { MenuItem } from "@/components/section";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotify } from "@/hooks/use-notify";
 import { tierGradient } from "@/utils/color";
-import { OA_ID } from "@/utils/env";
-import { formatNumber, initials } from "@/utils/format";
-import { followOA, openOAChat } from "@/utils/zalo";
+import { useAppData } from "@/hooks/use-app-data";
+import { BRAND_CODE } from "@/utils/env";
+import { formatMoney, formatNumber, initials } from "@/utils/format";
+import { followOA, openOAChat, resolveOaId } from "@/utils/zalo";
 
 export default function AccountPage() {
   const navigate = useNavigate();
   const { me, setMe, mock } = useAuth();
+  const { config } = useAppData();
+  const oaId = resolveOaId(config?.brand.zaloOaId);
   const notify = useNotify();
   const [following, setFollowing] = useState(false);
   const [showQR, setShowQR] = useState(false);
@@ -26,7 +29,7 @@ export default function AccountPage() {
   const onFollow = async () => {
     setFollowing(true);
     try {
-      await followOA();
+      await followOA(oaId);
       const updated = await api.updateMe({ followedOA: true });
       setMe(updated);
       notify.success("Cảm ơn bạn đã quan tâm nhà hàng!");
@@ -39,7 +42,7 @@ export default function AccountPage() {
 
   const onChat = async () => {
     try {
-      await openOAChat();
+      await openOAChat(oaId);
     } catch (e) {
       notify.error(e);
     }
@@ -96,35 +99,37 @@ export default function AccountPage() {
           icon={<AppIcon name="receipt" />}
           iconColor="#0F766E"
           label="Lịch sử ăn uống"
-          description={`${me.visitCount} lần ghé thăm`}
+          description={`${me.brandVisitCount} lần ghé ${config?.brand.name ?? "thương hiệu này"}`}
           onClick={() => navigate("/orders")}
         />
         <MenuItem
           icon={<AppIcon name="crown" />}
           iconColor="#B45309"
           label="Hạng thành viên"
-          description={me.nextTier ? `Còn ${formatNumber(me.pointsToNextTier)} điểm lên ${me.nextTier.name}` : "Hạng cao nhất"}
+          description={me.nextTier ? `Chi tiêu thêm ${formatMoney(me.amountToNextTier)} để lên ${me.nextTier.name}` : "Hạng cao nhất"}
           onClick={() => navigate("/tiers")}
         />
       </div>
 
       <div className="menu">
-        <MenuItem
-          icon={<AppIcon name="heart" />}
-          iconColor="#BE123C"
-          label="Quan tâm Official Account"
-          description="Nhận thông báo ưu đãi & xác nhận đặt bàn qua Zalo"
-          right={
-            me.followedOA ? (
-              <Badge tone="success">Đã quan tâm</Badge>
-            ) : (
-              <Button size="small" loading={following} onClick={onFollow}>
-                Quan tâm
-              </Button>
-            )
-          }
-        />
-        {(OA_ID || !mock) && (
+        {(oaId || mock) && (
+          <MenuItem
+            icon={<AppIcon name="heart" />}
+            iconColor="#BE123C"
+            label="Quan tâm Official Account"
+            description="Nhận thông báo ưu đãi & xác nhận đặt bàn qua Zalo"
+            right={
+              me.followedOA ? (
+                <Badge tone="success">Đã quan tâm</Badge>
+              ) : (
+                <Button size="small" loading={following} onClick={onFollow}>
+                  Quan tâm
+                </Button>
+              )
+            }
+          />
+        )}
+        {oaId && (
           <MenuItem
             icon={<AppIcon name="chat" />}
             iconColor="#2563EB"
@@ -135,13 +140,30 @@ export default function AccountPage() {
         <MenuItem
           icon={<AppIcon name="info" />}
           iconColor="#57534E"
-          label="Thông tin nhà hàng"
+          label={`Về ${config?.brand.name ?? "nhà hàng"}`}
           description="Hotline, giới thiệu, chi nhánh"
           onClick={() => navigate("/restaurant")}
         />
       </div>
 
-      {mock && <div className="dev-note">Chế độ thử nghiệm (giả lập Zalo)</div>}
+      {me.otherWallets.length > 0 && (
+        <>
+          <div className="menu-title">Điểm tại thương hiệu khác</div>
+          <div className="menu wallet-list">
+            {me.otherWallets.map((w) => (
+              <div key={w.brand.id} className="wallet-row">
+                <span>{w.brand.name}</span>
+                <b>{formatNumber(w.points)} điểm</b>
+              </div>
+            ))}
+          </div>
+          <div className="tier-note" style={{ marginTop: 6 }}>
+            Điểm tích ở thương hiệu nào chỉ dùng để đổi ưu đãi của thương hiệu đó. Hạng thành viên dùng chung.
+          </div>
+        </>
+      )}
+
+      {mock && <div className="dev-note">Chế độ thử nghiệm (giả lập Zalo) · {BRAND_CODE}</div>}
 
       <MemberQRSheet me={me} visible={showQR} onClose={() => setShowQR(false)} />
     </AppPage>

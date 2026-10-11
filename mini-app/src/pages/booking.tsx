@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, DatePicker, Input, Modal, Select, Tabs, useSearchParams } from "zmp-ui";
 import { api, type Booking } from "@/api";
 import { AppPage } from "@/components/app-page";
@@ -73,6 +73,18 @@ function BookingForm({ onBooked }: { onBooked: (b: Booking) => void }) {
     () => (branch ? buildTimeSlots(date, branch, minAdvance, maxDays, now) : []),
     [branch, date, minAdvance, maxDays, now],
   );
+
+  // Hôm nay đã hết khung giờ (vd mở app lúc tối muộn) → tự chuyển sang ngày mai một lần
+  const autoAdvanced = useRef(false);
+  const [pickerKey, setPickerKey] = useState(0);
+  useEffect(() => {
+    if (autoAdvanced.current || !branch || !config) return;
+    autoAdvanced.current = true;
+    if (!slots.length && dayjs(date).isSame(dayjs(), "day")) {
+      setDate(dayjs().add(1, "day").startOf("day").toDate());
+      setPickerKey((k) => k + 1);
+    }
+  }, [branch, config, slots, date]);
 
   // Bỏ chọn giờ nếu không còn hợp lệ
   useEffect(() => {
@@ -153,7 +165,7 @@ function BookingForm({ onBooked }: { onBooked: (b: Booking) => void }) {
           <DatePicker
             label="Ngày"
             title="Chọn ngày đặt bàn"
-            key={`date-${maxDays}`}
+            key={`date-${maxDays}-${pickerKey}`}
             defaultValue={date}
             action={{ text: "Xong", close: true }}
             startDate={today.toDate()}

@@ -1,13 +1,14 @@
 import type { Me } from "@/api/types";
-import { formatNumber } from "@/utils/format";
+import { formatMoney, formatNumber } from "@/utils/format";
 import { tierGradient } from "@/utils/color";
 import { AppIcon } from "./icons";
 
 /** Thẻ thành viên: tên, hạng, điểm, tiến độ lên hạng */
-export function MemberCard({ me, onShowQR }: { me: Me; onShowQR?: () => void }) {
+export function MemberCard({ me, onShowQR, brandName }: { me: Me; onShowQR?: () => void; brandName?: string }) {
   const tierColor = me.tier?.color;
   const next = me.nextTier;
-  const percent = next && next.minPoints > 0 ? Math.min(100, Math.round((me.lifetimePoints / next.minPoints) * 100)) : 100;
+  // Hạng dùng chung cho cả hệ thống, xét theo tổng chi tiêu ở mọi thương hiệu
+  const percent = next && next.minSpent > 0 ? Math.min(100, Math.round((me.totalSpent / next.minSpent) * 100)) : 100;
 
   return (
     <div className="member-card" style={{ background: tierGradient(tierColor) }}>
@@ -25,7 +26,7 @@ export function MemberCard({ me, onShowQR }: { me: Me; onShowQR?: () => void }) 
 
       <div className="member-card__points">
         <div>
-          <div className="member-card__label">Điểm hiện có</div>
+          <div className="member-card__label">Điểm tại {brandName ?? "thương hiệu này"}</div>
           <div className="member-card__value">
             {formatNumber(me.points)} <span>điểm</span>
           </div>
@@ -45,7 +46,7 @@ export function MemberCard({ me, onShowQR }: { me: Me; onShowQR?: () => void }) 
         <div className="member-card__hint">
           {next ? (
             <>
-              Còn <b>{formatNumber(me.pointsToNextTier)}</b> điểm để lên hạng <b>{next.name}</b>
+              Chi tiêu thêm <b>{formatMoney(me.amountToNextTier)}</b> để lên hạng <b>{next.name}</b>
             </>
           ) : (
             <>Bạn đang ở hạng cao nhất</>

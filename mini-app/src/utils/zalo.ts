@@ -7,10 +7,10 @@ import {
   openPhone as sdkOpenPhone,
 } from "zmp-sdk/apis";
 import type { LoginInput } from "@/api/types";
-import { isInZalo, isMockMode, OA_ID } from "./env";
+import { brandKey, FALLBACK_OA_ID, isInZalo, isMockMode } from "./env";
 import { storage } from "./storage";
 
-const MOCK_ID_KEY = "mockZaloId";
+const MOCK_ID_KEY = brandKey("mockZaloId");
 
 /** ID giả lập lưu trong localStorage để giữ nguyên tài khoản giữa các lần mở app trên trình duyệt */
 export function getMockZaloId(): string {
@@ -57,19 +57,24 @@ export async function requestPhonePayload(): Promise<{ token: string; accessToke
   return { token, accessToken };
 }
 
-export async function followOA(): Promise<void> {
-  if (isMockMode()) return;
-  if (!OA_ID) throw new Error("Chưa cấu hình VITE_ZALO_OA_ID");
-  await sdkFollowOA({ id: OA_ID });
+/** OA của thương hiệu: ưu tiên brand.zaloOaId từ /config, dự phòng VITE_ZALO_OA_ID */
+export function resolveOaId(brandOaId: string | null | undefined): string {
+  return (brandOaId || FALLBACK_OA_ID || "").trim();
 }
 
-export async function openOAChat(): Promise<void> {
-  if (!OA_ID) throw new Error("Nhà hàng chưa cấu hình Official Account");
+export async function followOA(oaId: string): Promise<void> {
+  if (isMockMode()) return;
+  if (!oaId) throw new Error("Nhà hàng chưa cấu hình Official Account");
+  await sdkFollowOA({ id: oaId });
+}
+
+export async function openOAChat(oaId: string): Promise<void> {
+  if (!oaId) throw new Error("Nhà hàng chưa cấu hình Official Account");
   if (!isInZalo()) {
-    window.open(`https://zalo.me/${OA_ID}`, "_blank");
+    window.open(`https://zalo.me/${oaId}`, "_blank");
     return;
   }
-  await sdkOpenChat({ type: "oa", id: OA_ID });
+  await sdkOpenChat({ type: "oa", id: oaId });
 }
 
 export async function callPhone(phone: string): Promise<void> {

@@ -5,7 +5,7 @@ import { Empty, ErrorState, Loading } from "@/components/states";
 import { useAppData } from "@/hooks/use-app-data";
 import { useAuth } from "@/hooks/use-auth";
 import { tierGradient } from "@/utils/color";
-import { formatMoney, formatNumber, splitLines } from "@/utils/format";
+import { formatMoney, splitLines } from "@/utils/format";
 
 export default function TiersPage() {
   const { me } = useAuth();
@@ -14,14 +14,16 @@ export default function TiersPage() {
   return (
     <AppPage back title="Hạng thành viên">
       <div className="page-pad">
-        {me && <MemberCard me={me} />}
+        {me && <MemberCard me={me} brandName={config?.brand.name} />}
 
         {config && (
           <div className="card card--note">
             <AppIcon name="sparkle" size={18} />
             <div>
-              Cứ mỗi <b>{formatMoney(config.pointPerAmount)}</b> chi tiêu bạn nhận 1 điểm (nhân hệ số theo hạng). Hạng được xét theo
-              tổng điểm tích luỹ – đổi quà không làm giảm hạng.
+              Hạng thành viên <b>dùng chung</b> cho mọi thương hiệu trong hệ thống và được xét theo <b>tổng chi tiêu</b> tại tất cả
+              thương hiệu (hiện tại: <b>{formatMoney(me?.totalSpent ?? 0)}</b>). Điểm được tích <b>riêng cho từng thương hiệu</b>: tại{" "}
+              {config.brand.name}, mỗi <b>{formatMoney(config.pointPerAmount)}</b> = 1 điểm (nhân hệ số theo hạng) và chỉ dùng để đổi
+              ưu đãi của {config.brand.name}.
             </div>
           </div>
         )}
@@ -36,7 +38,7 @@ export default function TiersPage() {
           <div className="list-gap">
             {tiers.map((t) => {
               const current = me?.tier?.id === t.id;
-              const reached = (me?.lifetimePoints ?? 0) >= t.minPoints;
+              const reached = (me?.totalSpent ?? 0) >= t.minSpent;
               return (
                 <div key={t.id} className={`tier-card ${current ? "tier-card--current" : ""}`} style={{ borderColor: current ? t.color : undefined }}>
                   <div className="tier-card__head" style={{ background: tierGradient(t.color) }}>
@@ -44,7 +46,7 @@ export default function TiersPage() {
                       <AppIcon name="crown" size={18} /> {t.name}
                     </div>
                     <div className="tier-card__req">
-                      {t.minPoints > 0 ? `Từ ${formatNumber(t.minPoints)} điểm` : "Mặc định khi đăng ký"}
+                      {t.minSpent > 0 ? `Chi tiêu từ ${formatMoney(t.minSpent)}` : "Mặc định khi đăng ký"}
                     </div>
                     {current && <span className="tier-card__current">Hạng của bạn</span>}
                   </div>
@@ -64,7 +66,7 @@ export default function TiersPage() {
                     )}
                     {!reached && me && (
                       <div className="tier-card__need">
-                        Cần thêm {formatNumber(t.minPoints - me.lifetimePoints)} điểm tích luỹ
+                        Cần chi tiêu thêm {formatMoney(t.minSpent - me.totalSpent)}
                       </div>
                     )}
                   </div>

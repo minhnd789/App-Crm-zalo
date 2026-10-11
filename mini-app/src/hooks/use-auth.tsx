@@ -3,9 +3,9 @@ import { api, errorMessage, type Me } from "@/api";
 import { setReauthHandler, setToken } from "@/api/client";
 import { storage } from "@/utils/storage";
 import { buildLoginPayload } from "@/utils/zalo";
-import { isMockMode } from "@/utils/env";
+import { brandKey, isMockMode } from "@/utils/env";
 
-const TOKEN_KEY = "crm_token";
+const TOKEN_KEY = brandKey("crm_token");
 
 interface AuthContextValue {
   me: Me | null;
@@ -20,6 +20,8 @@ interface AuthContextValue {
   setMe: (me: Me) => void;
   /** Thử đăng nhập lại */
   retry: () => void;
+  /** Thay token (vd sau khi tài khoản được gộp khi liên kết SĐT) */
+  applyToken: (token: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -101,9 +103,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const retry = useCallback(() => setAttempt((a) => a + 1), []);
 
+  const applyToken = useCallback((t: string) => {
+    setToken(t);
+    storage.set(TOKEN_KEY, t);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ me, loading, error, isNew, mock: isMockMode(), refreshMe, setMe, retry }),
-    [me, loading, error, isNew, refreshMe, retry],
+    () => ({ me, loading, error, isNew, mock: isMockMode(), refreshMe, setMe, retry, applyToken }),
+    [me, loading, error, isNew, refreshMe, retry, applyToken],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

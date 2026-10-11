@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, type AppConfig, type Branch, type Tier } from "@/api";
+import { applyBrandTheme, applyBrandTitle } from "@/utils/theme";
 
-/** Dữ liệu công khai, ít thay đổi: cấu hình nhà hàng, chi nhánh, hạng thành viên */
+/** Dữ liệu công khai, ít thay đổi: thương hiệu & cấu hình, chi nhánh, hạng thành viên (dùng chung) */
 interface AppDataValue {
   config: AppConfig | null;
   branches: Branch[];
@@ -29,6 +30,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       .then(([c, b, t]) => {
         if (cancelled) return;
         setConfig(c);
+        applyBrandTheme(c.brand?.primaryColor);
+        applyBrandTitle(c.brand?.name);
         setBranches(b);
         setTiers(t);
       })

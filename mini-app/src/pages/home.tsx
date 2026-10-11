@@ -23,8 +23,9 @@ function greeting() {
   return "Chào buổi tối";
 }
 
-const QUICK_ACTIONS: { label: string; icon: IconName; to: string; color: string }[] = [
-  { label: "Đặt bàn", icon: "calendar", to: "/booking", color: "#C2410C" },
+/** color = null → dùng màu thương hiệu */
+const QUICK_ACTIONS: { label: string; icon: IconName; to: string; color: string | null }[] = [
+  { label: "Đặt bàn", icon: "calendar", to: "/booking", color: null },
   { label: "Đổi điểm", icon: "coin", to: "/offers?tab=points", color: "#B45309" },
   { label: "Voucher của tôi", icon: "ticket", to: "/wallet", color: "#BE123C" },
   { label: "Lịch sử ăn uống", icon: "receipt", to: "/orders", color: "#0F766E" },
@@ -52,13 +53,22 @@ export default function HomePage() {
             <div className="home-hero__greet">{greeting()},</div>
             <div className="home-hero__name">{me.name}</div>
           </div>
-          <div className="home-hero__brand">{config?.restaurantName}</div>
+          {config && (
+            <div className="home-hero__brand">
+              {config.brand.logoUrl && <img src={config.brand.logoUrl} alt="" className="home-hero__logo" />}
+              <span>{config.brand.name}</span>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="home-card-wrap">
-        <MemberCard me={me} onShowQR={() => setShowQR(true)} />
+        <MemberCard me={me} brandName={config?.brand.name} onShowQR={() => setShowQR(true)} />
       </div>
+      <button className="tier-note" onClick={() => navigate("/tiers")}>
+        <AppIcon name="info" size={14} />
+        <span>Hạng tính theo tổng chi tiêu tại mọi thương hiệu trong hệ thống · điểm tích riêng từng thương hiệu</span>
+      </button>
 
       <div className="stats-row">
         <div className="stat">
@@ -66,19 +76,22 @@ export default function HomePage() {
           <div className="stat__label">Voucher khả dụng</div>
         </div>
         <div className="stat">
-          <div className="stat__value">{me.visitCount}</div>
+          <div className="stat__value">{me.brandVisitCount}</div>
           <div className="stat__label">Lần ghé thăm</div>
         </div>
         <div className="stat">
           <div className="stat__value stat__value--sm">{formatMoney(me.totalSpent)}</div>
-          <div className="stat__label">Tổng chi tiêu</div>
+          <div className="stat__label">Chi tiêu xét hạng</div>
         </div>
       </div>
 
       <div className="quick-grid">
         {QUICK_ACTIONS.map((a) => (
           <button key={a.label} className="quick-item" onClick={() => navigate(a.to)}>
-            <span className="quick-item__icon" style={{ color: a.color, background: `${a.color}14` }}>
+            <span
+              className={`quick-item__icon ${a.color ? "" : "quick-item__icon--brand"}`}
+              style={a.color ? { color: a.color, background: `${a.color}14` } : undefined}
+            >
               <AppIcon name={a.icon} size={24} />
             </span>
             <span className="quick-item__label">{a.label}</span>

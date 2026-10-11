@@ -7,10 +7,21 @@ export interface Paginated<T> {
   pageSize: number;
 }
 
+/** Thương hiệu của Mini App hiện tại (mỗi thương hiệu = 1 Mini App + 1 OA) */
+export interface BrandInfo {
+  id: number;
+  code: string;
+  name: string;
+  logoUrl: string | null;
+  /** Màu chủ đạo, dạng #RRGGBB */
+  primaryColor: string | null;
+  hotline: string | null;
+  about: string | null;
+  zaloOaId: string | null;
+}
+
 export interface AppConfig {
-  restaurantName: string;
-  hotline: string;
-  about: string;
+  brand: BrandInfo;
   pointPerAmount: number;
   bookingMinAdvanceMinutes: number;
   bookingMaxDays: number;
@@ -21,7 +32,8 @@ export interface Tier {
   id: number;
   name: string;
   code: string;
-  minPoints: number;
+  /** Tổng chi tiêu (VND, mọi thương hiệu) tối thiểu để đạt hạng */
+  minSpent: number;
   pointMultiplier: number;
   /** Nhiều dòng, mỗi dòng một quyền lợi */
   benefits: string | null;
@@ -30,6 +42,7 @@ export interface Tier {
 
 export interface Branch {
   id: number;
+  brandId: number;
   name: string;
   address: string;
   phone: string | null;
@@ -105,6 +118,11 @@ export interface CustomerVoucher {
 
 export type Gender = "MALE" | "FEMALE" | "OTHER";
 
+export interface OtherWallet {
+  brand: { id: number; name: string; code: string };
+  points: number;
+}
+
 export interface Me {
   id: number;
   name: string;
@@ -113,16 +131,31 @@ export interface Me {
   birthday: string | null;
   gender: Gender | null;
   memberCode: string;
+  /** Điểm hiện có tại thương hiệu này */
   points: number;
+  /** Tổng điểm đã tích tại thương hiệu này */
   lifetimePoints: number;
+  /** Chi tiêu & số lần ghé tại thương hiệu này */
+  brandSpent: number;
+  brandVisitCount: number;
+  /** Chi tiêu & số lần ghé ở mọi thương hiệu – dùng xét hạng chung */
   totalSpent: number;
   visitCount: number;
   followedOA: boolean;
   createdAt: string;
   availableVouchers: number;
+  /** Điểm ở các thương hiệu khác trong hệ thống */
+  otherWallets: OtherWallet[];
   tier: Tier | null;
   nextTier: Tier | null;
-  pointsToNextTier: number;
+  /** VND còn thiếu để lên hạng tiếp theo */
+  amountToNextTier: number;
+}
+
+/** POST /me/phone – khi `merged` = true phải thay token bằng `token` mới */
+export interface LinkPhoneResponse extends Me {
+  merged: boolean;
+  token?: string;
 }
 
 export interface LoginResponse {

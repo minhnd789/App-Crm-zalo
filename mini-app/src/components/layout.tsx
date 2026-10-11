@@ -1,7 +1,7 @@
 import React from "react";
 import { AnimationRoutes, App, Button, Route, SnackbarProvider, Spinner, ZMPRouter } from "zmp-ui";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
-import { AppDataProvider } from "@/hooks/use-app-data";
+import { AppDataProvider, useAppData } from "@/hooks/use-app-data";
 import { BottomNav } from "./bottom-nav";
 import { AppIcon } from "./icons";
 import HomePage from "@/pages/home";
@@ -23,12 +23,15 @@ import NotFoundPage from "@/pages/not-found";
 /** Màn hình chờ trong lúc đăng nhập Zalo */
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { me, loading, error, retry } = useAuth();
+  const { config } = useAppData();
+  const brand = config?.brand;
   if (loading && !me) {
     return (
       <div className="splash">
         <div className="splash__logo">
-          <AppIcon name="utensils" size={40} />
+          {brand?.logoUrl ? <img src={brand.logoUrl} alt="" className="splash__img" /> : <AppIcon name="utensils" size={40} />}
         </div>
+        {brand && <div className="splash__title">{brand.name}</div>}
         <Spinner visible />
         <div className="splash__text">Đang đăng nhập...</div>
       </div>

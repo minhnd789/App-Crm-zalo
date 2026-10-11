@@ -6,8 +6,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 3000",
+    "dev:brand_a": "vite --port 3000 --mode brand_a",
+    "dev:brand_b": "vite --port 3000 --mode brand_b",
     "start": "zmp start",
     "build": "tsc --noEmit && vite build",
+    "build:brand_a": "tsc --noEmit && vite build --mode brand_a",
+    "build:brand_b": "tsc --noEmit && vite build --mode brand_b",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --port 3000",
     "login": "zmp login",

@@ -1,4 +1,4 @@
-import { API_URL } from "@/utils/env";
+import { API_URL, BRAND_CODE } from "@/utils/env";
 
 /** Lỗi trả về từ API, `message` là thông báo tiếng Việt từ backend */
 export class ApiError extends Error {
@@ -47,7 +47,7 @@ function buildUrl(path: string, query?: Query) {
 }
 
 async function doFetch(path: string, opts: RequestOptions): Promise<Response> {
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", "X-Brand": BRAND_CODE };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   if (!opts.public && token) headers.Authorization = `Bearer ${token}`;
   try {
