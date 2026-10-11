@@ -42,7 +42,7 @@ export default function OrdersPage() {
   return (
     <>
       <PageHeader
-        title="Hoá đơn / Tích điểm"
+        title="Hoá đơn / Tích điểm" scoped
         extra={
           <Link to="/orders/new">
             <Button type="primary" icon={<PlusCircleOutlined />}>

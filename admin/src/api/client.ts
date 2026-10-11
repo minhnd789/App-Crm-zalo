@@ -2,6 +2,30 @@ export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:4000')
 const BASE = `${API_URL}/api/admin`;
 const TOKEN_KEY = 'crm_admin_token';
 const USER_KEY = 'crm_admin_user';
+const BRAND_KEY = 'crm_admin_brand';
+
+/** Thương hiệu đang thao tác – gửi qua header X-Brand-Id ở mọi request */
+let currentBrandId: number | null = (() => {
+  try {
+    const v = Number(localStorage.getItem(BRAND_KEY));
+    return Number.isInteger(v) && v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+})();
+
+export const brandStore = {
+  get: () => currentBrandId,
+  set: (id: number | null) => {
+    currentBrandId = id;
+    try {
+      if (id) localStorage.setItem(BRAND_KEY, String(id));
+      else localStorage.removeItem(BRAND_KEY);
+    } catch {
+      /* bỏ qua */
+    }
+  },
+};
 
 export const tokenStore = {
   get: () => localStorage.getItem(TOKEN_KEY),
@@ -55,6 +79,7 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   const headers: Record<string, string> = {};
   const token = tokenStore.get();
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (currentBrandId) headers['X-Brand-Id'] = String(currentBrandId);
   let payload: BodyInit | undefined;
   if (body instanceof FormData) payload = body;
   else if (body !== undefined) {

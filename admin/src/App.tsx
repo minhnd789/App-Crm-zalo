@@ -2,7 +2,7 @@ import { Route, Routes } from 'react-router-dom';
 import { Result, Button } from 'antd';
 import { Link } from 'react-router-dom';
 import AdminLayout from './layouts/AdminLayout';
-import { RequireAuth, RequireManager } from './auth/RequireAuth';
+import { RequireAuth, RequireManager, RequireSuperAdmin } from './auth/RequireAuth';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CustomersPage from './pages/customers/CustomersPage';
@@ -17,6 +17,7 @@ import TiersPage from './pages/TiersPage';
 import BranchesPage from './pages/BranchesPage';
 import SettingsPage from './pages/SettingsPage';
 import AdminsPage from './pages/AdminsPage';
+import BrandsPage from './pages/BrandsPage';
 
 export default function App() {
   return (
@@ -40,6 +41,14 @@ export default function App() {
         <Route path="promotions" element={<PromotionsPage />} />
         <Route path="tiers" element={<TiersPage />} />
         <Route path="branches" element={<BranchesPage />} />
+        <Route
+          path="brands"
+          element={
+            <RequireSuperAdmin>
+              <BrandsPage />
+            </RequireSuperAdmin>
+          }
+        />
         <Route
           path="settings"
           element={

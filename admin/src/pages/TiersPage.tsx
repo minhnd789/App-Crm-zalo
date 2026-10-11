@@ -6,14 +6,14 @@ import type { Color } from 'antd/es/color-picker';
 import { api } from '../api/client';
 import type { Tier } from '../api/types';
 import { useRequest } from '../hooks/useRequest';
-import { useIsManager } from '../auth/useIsManager';
+import { useIsSuperAdmin } from '../auth/useIsManager';
 import { invalidateCatalog } from '../hooks/useCatalog';
 import { PageHeader } from '../components/PageHeader';
 import { TierTag } from '../components/TierTag';
-import { errMsg, num } from '../utils/format';
+import { errMsg, money, moneyInput, num } from '../utils/format';
 
 export default function TiersPage() {
-  const manager = useIsManager();
+  const manager = useIsSuperAdmin();
   const { message } = App.useApp();
   const { data, loading, reload } = useRequest(() => api.get<Tier[]>('/tiers'), []);
   const [editing, setEditing] = useState<Tier | null>(null);
@@ -27,7 +27,7 @@ export default function TiersPage() {
     <>
       <PageHeader
         title="Hạng thành viên"
-        subtitle="Khách tự động lên hạng khi điểm tích luỹ đạt mức tối thiểu."
+        subtitle="Dùng chung cho mọi thương hiệu – xét theo tổng chi tiêu của khách ở tất cả thương hiệu."
         extra={
           manager ? (
             <Button
@@ -43,6 +43,19 @@ export default function TiersPage() {
           ) : null
         }
       />
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Hạng thành viên áp dụng cho tất cả thương hiệu"
+        description={
+          <>
+            Khách tự động lên hạng khi <b>tổng chi tiêu ở mọi thương hiệu</b> đạt mức tối thiểu. Hệ số nhân điểm của hạng áp dụng khi
+            tích điểm ở bất kỳ thương hiệu nào (điểm vẫn cộng vào ví riêng của từng thương hiệu).
+            {!manager ? ' Chỉ quản trị toàn hệ thống được thay đổi cấu hình hạng.' : ''}
+          </>
+        }
+      />
       <Card>
         <Table<Tier>
           rowKey="id"
@@ -53,7 +66,7 @@ export default function TiersPage() {
           columns={[
             { title: 'Hạng', render: (_, t) => <TierTag tier={t} /> },
             { title: 'Mã', dataIndex: 'code' },
-            { title: 'Điểm tích luỹ tối thiểu', dataIndex: 'minPoints', align: 'right', render: num },
+            { title: 'Chi tiêu tối thiểu', dataIndex: 'minSpent', align: 'right', render: money },
             { title: 'Hệ số điểm', dataIndex: 'pointMultiplier', align: 'right', render: (v) => `×${v}` },
             {
               title: 'Quyền lợi',
@@ -124,7 +137,7 @@ export default function TiersPage() {
 interface TierForm {
   name: string;
   code: string;
-  minPoints: number;
+  minSpent: number;
   pointMultiplier: number;
   color: string | Color;
   benefits?: string;
@@ -139,8 +152,8 @@ function TierModal({ open, tier, onClose, onSaved }: { open: boolean; tier: Tier
     form.resetFields();
     form.setFieldsValue(
       tier
-        ? { name: tier.name, code: tier.code, minPoints: tier.minPoints, pointMultiplier: tier.pointMultiplier, color: tier.color, benefits: tier.benefits ?? '' }
-        : { minPoints: 0, pointMultiplier: 1, color: '#9E9E9E' },
+        ? { name: tier.name, code: tier.code, minSpent: tier.minSpent, pointMultiplier: tier.pointMultiplier, color: tier.color, benefits: tier.benefits ?? '' }
+        : { minSpent: 0, pointMultiplier: 1, color: '#9E9E9E' },
     );
   }, [open, tier, form]);
   return (
@@ -154,7 +167,7 @@ function TierModal({ open, tier, onClose, onSaved }: { open: boolean; tier: Tier
       onOk={() => form.submit()}
       forceRender
     >
-      <Alert type="info" showIcon style={{ marginBottom: 16 }} message="Sau khi lưu, hệ thống tự xếp lại hạng cho toàn bộ khách hàng." />
+      <Alert type="info" showIcon style={{ marginBottom: 16 }} message="Hạng dùng chung mọi thương hiệu. Sau khi lưu, hệ thống tự xếp lại hạng cho toàn bộ khách hàng." />
       <Form
         form={form}
         layout="vertical"
@@ -163,7 +176,7 @@ function TierModal({ open, tier, onClose, onSaved }: { open: boolean; tier: Tier
           const body = {
             name: v.name.trim(),
             code: v.code.trim().toUpperCase(),
-            minPoints: v.minPoints,
+            minSpent: v.minSpent,
             pointMultiplier: v.pointMultiplier,
             color,
             benefits: v.benefits?.trim() ? v.benefits.trim() : null,
@@ -197,8 +210,13 @@ function TierModal({ open, tier, onClose, onSaved }: { open: boolean; tier: Tier
           <Input maxLength={50} style={{ textTransform: 'uppercase' }} />
         </Form.Item>
         <Space size={16} wrap>
-          <Form.Item name="minPoints" label="Điểm tích luỹ tối thiểu" rules={[{ required: true, message: 'Bắt buộc' }]}>
-            <InputNumber min={0} precision={0} style={{ width: 200 }} />
+          <Form.Item
+            name="minSpent"
+            label="Tổng chi tiêu tối thiểu"
+            rules={[{ required: true, message: 'Bắt buộc' }]}
+            extra="Cộng dồn ở mọi thương hiệu"
+          >
+            <InputNumber min={0} step={100000} style={{ width: 220 }} suffix="đ" {...moneyInput} />
           </Form.Item>
           <Form.Item name="pointMultiplier" label="Hệ số nhân điểm" rules={[{ required: true, message: 'Bắt buộc' }]} extra="VD 1.5 = nhận gấp 1,5 lần điểm">
             <InputNumber min={0} max={100} step={0.1} style={{ width: 160 }} prefix="×" />
@@ -210,7 +228,7 @@ function TierModal({ open, tier, onClose, onSaved }: { open: boolean; tier: Tier
         <Form.Item name="benefits" label="Quyền lợi" extra="Mỗi dòng là một quyền lợi">
           <Input.TextArea rows={5} maxLength={5000} />
         </Form.Item>
-        <Typography.Text type="secondary">Hạng có điểm tối thiểu 0 là hạng mặc định cho khách mới.</Typography.Text>
+        <Typography.Text type="secondary">Hạng có chi tiêu tối thiểu 0đ là hạng mặc định cho khách mới.</Typography.Text>
       </Form>
     </Modal>
   );

@@ -390,9 +390,14 @@ export function GiftBulkModal({ voucher, onClose, onDone }: { voucher: Voucher |
             <CustomerMultiSelect />
           </Form.Item>
         ) : (
-          <Form.Item name="tierId" label="Hạng thành viên" rules={[{ required: true, message: 'Chọn hạng' }]}>
+          <Form.Item
+            name="tierId"
+            label="Hạng thành viên"
+            rules={[{ required: true, message: 'Chọn hạng' }]}
+            extra="Chỉ tặng cho khách thuộc hạng này đã là thành viên (có ví) của thương hiệu đang chọn"
+          >
             <Select
-              options={tiers.map((t) => ({ value: t.id, label: `${t.name} (${t._count?.customers ?? 0} khách)` }))}
+              options={tiers.map((t) => ({ value: t.id, label: t.name }))}
               placeholder="Chọn hạng"
             />
           </Form.Item>

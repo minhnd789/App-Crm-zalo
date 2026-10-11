@@ -2,13 +2,54 @@
 
 export type Role = 'ADMIN' | 'STAFF';
 
+export interface Brand {
+  id: number;
+  code: string;
+  name: string;
+  logoUrl: string | null;
+  primaryColor: string;
+  hotline: string | null;
+  about: string | null;
+  zaloAppId: string | null;
+  zaloOaId: string | null;
+  active: boolean;
+  /** Secret không bao giờ trả về – chỉ biết đã cấu hình hay chưa */
+  hasZaloAppSecretKey: boolean;
+  hasZaloOaAccessToken: boolean;
+  createdAt?: string;
+  _count?: { branches: number; wallets: number };
+}
+
+export type BrandRef = Pick<Brand, 'id' | 'name'> & { code?: string };
+
 export interface AdminUser {
   id: number;
   username: string;
   name: string;
   role: Role;
+  /** null = quản trị toàn hệ thống */
+  brandId: number | null;
+  brand?: BrandRef | null;
   active?: boolean;
   createdAt?: string;
+}
+
+/** GET /auth/me */
+export interface AdminMe extends AdminUser {
+  brands: Brand[];
+}
+
+/** Ví điểm của khách tại 1 thương hiệu */
+export interface Wallet {
+  id: number;
+  customerId: number;
+  brandId: number;
+  points: number;
+  lifetimePoints: number;
+  totalSpent: number;
+  visitCount: number;
+  lastVisitAt: string | null;
+  brand?: BrandRef;
 }
 
 export interface Paged<T> {
@@ -22,7 +63,8 @@ export interface Tier {
   id: number;
   name: string;
   code: string;
-  minPoints: number;
+  /** Tổng chi tiêu (VND, mọi thương hiệu) tối thiểu */
+  minSpent: number;
   pointMultiplier: number;
   benefits: string | null;
   color: string;
@@ -31,6 +73,7 @@ export interface Tier {
 
 export interface Branch {
   id: number;
+  brandId?: number;
   name: string;
   address: string;
   phone: string | null;
@@ -101,23 +144,35 @@ export type Gender = 'MALE' | 'FEMALE' | 'OTHER';
 
 export interface Customer {
   id: number;
-  zaloId: string;
   name: string;
   avatar: string | null;
   phone: string | null;
   birthday: string | null;
   gender: Gender | null;
   memberCode: string;
-  points: number;
-  lifetimePoints: number;
+  /** Tổng chi tiêu ở mọi thương hiệu – dùng xét hạng */
   totalSpent: number;
   visitCount: number;
   tierId: number | null;
   tier: Tier | null;
   note: string | null;
-  followedOA: boolean;
   lastVisitAt: string | null;
   createdAt: string;
+  /** Ví của thương hiệu đang chọn (null nếu khách chưa có ví ở đây) */
+  wallet?: Wallet | null;
+  /** Các thương hiệu khách đã dùng Mini App (danh sách) */
+  brandIds?: number[];
+}
+
+export interface ZaloAccount {
+  id: number;
+  brandId: number;
+  brand: BrandRef;
+  zaloId: string;
+  zaloOAId: string | null;
+  followedOA: boolean;
+  createdAt: string;
+  lastLoginAt: string;
 }
 
 export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'ARRIVED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
@@ -166,7 +221,10 @@ export interface Order {
   cancelledAt?: string | null;
   items?: OrderItem[];
   usedVoucher?: CustomerVoucher | null;
-  customer?: { id: number; name: string; phone: string | null; tier?: Tier | null; points?: number; lifetimePoints?: number };
+  brandId?: number;
+  source?: 'ADMIN' | 'POS';
+  externalId?: string | null;
+  customer?: { id: number; name: string; phone: string | null; tier?: Tier | null; totalSpent?: number };
   createdBy?: { id?: number; name: string } | null;
 }
 
@@ -183,16 +241,23 @@ export interface PointTransaction {
   admin?: { id: number; name: string } | null;
 }
 
+type WithBrand<T> = T & { brand?: BrandRef };
+
 export interface CustomerDetail extends Customer {
-  orders: Order[];
-  bookings: Booking[];
-  vouchers: CustomerVoucher[];
-  pointTransactions: PointTransaction[];
+  orders: WithBrand<Order>[];
+  bookings: WithBrand<Booking>[];
+  vouchers: WithBrand<CustomerVoucher>[];
+  pointTransactions: WithBrand<PointTransaction>[];
+  wallets: (Wallet & { brand: BrandRef })[];
+  zaloAccounts: ZaloAccount[];
+  wallet: Wallet | null;
   nextTier: Tier | null;
-  pointsToNextTier: number;
+  /** VND còn thiếu để lên hạng kế tiếp */
+  amountToNextTier: number;
 }
 
 export interface CustomerLookup extends Customer {
+  wallet: Wallet | null;
   vouchers: CustomerVoucher[];
   bookings: Booking[];
 }
@@ -213,10 +278,8 @@ export interface Dashboard {
   upcomingBookings: Booking[];
 }
 
+/** Cài đặt theo thương hiệu (tên/hotline/giới thiệu nằm ở Brand) */
 export interface Settings {
-  restaurantName: string;
-  hotline: string;
-  about: string;
   pointPerAmount: string;
   welcomePoints: string;
   bookingMinAdvanceMinutes: string;
@@ -235,3 +298,11 @@ export interface VoucherDetail extends Voucher {
 }
 
 export type VoucherCheck = CustomerVoucher & { valid: boolean; reason: string | null; discount: number | null };
+
+/** POST /orders */
+export interface CreateOrderResult {
+  order: Order;
+  tierUp: boolean;
+  tier: Tier | null;
+  balance?: number;
+}

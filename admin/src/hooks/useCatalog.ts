@@ -1,34 +1,42 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { api, brandStore } from '../api/client';
 import type { Branch, Tier } from '../api/types';
 
-// Bộ nhớ đệm đơn giản cho danh mục ít thay đổi (hạng, chi nhánh)
-const cache: { tiers?: Promise<Tier[]>; branches?: Promise<Branch[]> } = {};
+// Bộ nhớ đệm đơn giản cho danh mục ít thay đổi. Hạng dùng chung; chi nhánh theo từng thương hiệu.
+let tiersCache: Promise<Tier[]> | undefined;
+const branchesCache = new Map<number, Promise<Branch[]>>();
 
 export function invalidateCatalog(kind: 'tiers' | 'branches') {
-  delete cache[kind];
+  if (kind === 'tiers') tiersCache = undefined;
+  else branchesCache.clear();
 }
 
 export function useTiers() {
   const [tiers, setTiers] = useState<Tier[]>([]);
   useEffect(() => {
-    cache.tiers ??= api.get<Tier[]>('/tiers').catch((e) => {
-      delete cache.tiers;
+    tiersCache ??= api.get<Tier[]>('/tiers').catch((e) => {
+      tiersCache = undefined;
       throw e;
     });
-    cache.tiers.then(setTiers).catch(() => undefined);
+    tiersCache.then(setTiers).catch(() => undefined);
   }, []);
   return tiers;
 }
 
+/** Chi nhánh của thương hiệu đang chọn */
 export function useBranches() {
   const [branches, setBranches] = useState<Branch[]>([]);
   useEffect(() => {
-    cache.branches ??= api.get<Branch[]>('/branches').catch((e) => {
-      delete cache.branches;
-      throw e;
-    });
-    cache.branches.then(setBranches).catch(() => undefined);
+    const brandId = brandStore.get() ?? 0;
+    let p = branchesCache.get(brandId);
+    if (!p) {
+      p = api.get<Branch[]>('/branches').catch((e) => {
+        branchesCache.delete(brandId);
+        throw e;
+      });
+      branchesCache.set(brandId, p);
+    }
+    p.then(setBranches).catch(() => undefined);
   }, []);
   return branches;
 }

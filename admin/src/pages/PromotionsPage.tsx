@@ -37,7 +37,7 @@ export default function PromotionsPage() {
   return (
     <>
       <PageHeader
-        title="Chương trình ưu đãi"
+        title="Chương trình ưu đãi" scoped
         subtitle="Bài viết / banner hiển thị trên Mini App. Đánh dấu nổi bật để hiện ở banner trang chủ."
         extra={
           manager ? (

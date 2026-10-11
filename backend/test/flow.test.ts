@@ -303,6 +303,11 @@ test('phân quyền: tài khoản thương hiệu B chỉ thao tác trong B; nh�
   assert.equal(staff.body.brandId, brandB, 'tự gắn thương hiệu của người tạo');
 
   const st = (await request(app).post('/api/admin/auth/login').send({ username: 'nvb', password: 'nvb123' })).body.token;
+  // Quản lý B không thấy ví điểm của khách tại thương hiệu A
+  const detail = await request(app).get(`/api/admin/customers/${customerId}`).set(auth);
+  assert.deepEqual(detail.body.wallets.map((w: any) => w.brandId), [brandB]);
+  assert.ok(detail.body.totalSpent > 0, 'tổng chi tiêu chung vẫn hiển thị');
+
   const denied = await request(app).post(`/api/admin/customers/${customerId}/points`).set({ Authorization: `Bearer ${st}` }).send({ points: 10, description: 'x' });
   assert.equal(denied.status, 403);
 });

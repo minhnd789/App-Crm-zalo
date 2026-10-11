@@ -42,7 +42,7 @@ export default function VouchersPage() {
   return (
     <>
       <PageHeader
-        title="Voucher"
+        title="Voucher" scoped
         subtitle="Mẫu voucher khách nhận miễn phí hoặc đổi bằng điểm trên Mini App"
         extra={
           <>

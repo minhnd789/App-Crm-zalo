@@ -5,7 +5,6 @@ import {
   Avatar,
   Button,
   Card,
-  Checkbox,
   Col,
   DatePicker,
   Descriptions,
@@ -23,12 +22,14 @@ import {
   Statistic,
   Table,
   Tabs,
+  Tag,
   Typography,
 } from 'antd';
 import { EditOutlined, GiftOutlined, PlusCircleOutlined, StarOutlined, UserOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { api } from '../../api/client';
-import type { CustomerDetail, Paged, Voucher } from '../../api/types';
+import type { CustomerDetail, Paged, Voucher, Wallet } from '../../api/types';
+import { useAuth } from '../../auth/AuthContext';
 import { useRequest } from '../../hooks/useRequest';
 import { useIsManager } from '../../auth/useIsManager';
 import { TierTag } from '../../components/TierTag';
@@ -41,6 +42,7 @@ export default function CustomerDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const manager = useIsManager();
+  const { brand } = useAuth();
   const { data: c, loading, error, reload } = useRequest(() => api.get<CustomerDetail>(`/customers/${id}`), [id]);
   const [editOpen, setEditOpen] = useState(false);
   const [pointsOpen, setPointsOpen] = useState(false);
@@ -50,8 +52,12 @@ export default function CustomerDetailPage() {
   if (error && !c) return <Result status="404" title={error} extra={<Link to="/customers">Về danh sách khách hàng</Link>} />;
   if (!c) return <Skeleton active avatar paragraph={{ rows: 10 }} />;
 
-  const tierStart = c.tier?.minPoints ?? 0;
-  const percent = c.nextTier ? Math.min(100, Math.round(((c.lifetimePoints - tierStart) / (c.nextTier.minPoints - tierStart)) * 100)) : 100;
+  const tierStart = c.tier?.minSpent ?? 0;
+  const percent = c.nextTier
+    ? Math.max(0, Math.min(100, Math.round(((c.totalSpent - tierStart) / Math.max(1, c.nextTier.minSpent - tierStart)) * 100)))
+    : 100;
+  const wallet = c.wallet;
+  const brandName = brand?.name ?? 'thương hiệu này';
 
   return (
     <>
@@ -89,7 +95,6 @@ export default function CustomerDetailPage() {
               <Descriptions.Item label="Số điện thoại">{c.phone || '—'}</Descriptions.Item>
               <Descriptions.Item label="Ngày sinh">{date(c.birthday)}</Descriptions.Item>
               <Descriptions.Item label="Giới tính">{c.gender ? GENDER_LABEL[c.gender] : '—'}</Descriptions.Item>
-              <Descriptions.Item label="Quan tâm OA">{c.followedOA ? 'Có' : 'Chưa'}</Descriptions.Item>
               <Descriptions.Item label="Ngày tham gia">{datetime(c.createdAt)}</Descriptions.Item>
               <Descriptions.Item label="Ghé gần nhất">{datetime(c.lastVisitAt)}</Descriptions.Item>
               <Descriptions.Item label="Ghi chú">
@@ -102,23 +107,28 @@ export default function CustomerDetailPage() {
           <Card title="Thành viên">
             <Row gutter={[16, 16]}>
               <Col span={12} md={6}>
-                <Statistic title="Điểm hiện có" value={num(c.points)} />
+                <Statistic title={`Điểm tại ${brandName}`} value={num(wallet?.points ?? 0)} />
               </Col>
               <Col span={12} md={6}>
-                <Statistic title="Điểm tích luỹ" value={num(c.lifetimePoints)} />
+                <Statistic title="Chi tiêu tại thương hiệu" value={money(wallet?.totalSpent ?? 0)} />
               </Col>
               <Col span={12} md={6}>
-                <Statistic title="Tổng chi tiêu" value={money(c.totalSpent)} />
+                <Statistic title="Tổng chi tiêu (mọi TH)" value={money(c.totalSpent)} />
               </Col>
               <Col span={12} md={6}>
-                <Statistic title="Lượt ghé" value={c.visitCount} />
+                <Statistic title="Tổng lượt ghé" value={c.visitCount} />
               </Col>
             </Row>
+            {!wallet ? (
+              <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                Khách chưa có ví điểm tại {brandName} (ví được tạo khi khách vào Mini App hoặc có hoá đơn đầu tiên).
+              </Typography.Paragraph>
+            ) : null}
             <div style={{ marginTop: 16 }}>
               {c.nextTier ? (
                 <>
                   <Typography.Text>
-                    Còn <b>{num(c.pointsToNextTier)}</b> điểm tích luỹ để lên hạng <TierTag tier={c.nextTier} />
+                    Còn chi tiêu <b>{money(c.amountToNextTier)}</b> (ở bất kỳ thương hiệu nào) để lên hạng <TierTag tier={c.nextTier} />
                   </Typography.Text>
                   <Progress percent={percent} strokeColor={c.nextTier.color} />
                 </>
@@ -127,7 +137,7 @@ export default function CustomerDetailPage() {
               )}
               {c.tier ? (
                 <Typography.Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>
-                  Hệ số tích điểm hạng {c.tier.name}: ×{c.tier.pointMultiplier}
+                  Hạng xét theo tổng chi tiêu mọi thương hiệu. Hệ số tích điểm hạng {c.tier.name}: ×{c.tier.pointMultiplier}
                 </Typography.Paragraph>
               ) : null}
             </div>
@@ -150,13 +160,60 @@ export default function CustomerDetailPage() {
             </Space>
           </Card>
         </Col>
+        <Col xs={24} lg={14}>
+          <Card title="Ví điểm theo thương hiệu" size="small">
+            <Table
+              size="small"
+              rowKey="id"
+              pagination={false}
+              dataSource={c.wallets}
+              locale={{ emptyText: 'Khách chưa có ví điểm ở thương hiệu nào' }}
+              rowClassName={(w) => (w.brandId === brand?.id ? 'row-current' : '')}
+              columns={[
+                {
+                  title: 'Thương hiệu',
+                  render: (_, w) => (
+                    <>
+                      {w.brand.name} {w.brandId === brand?.id ? <Tag color="processing">Đang chọn</Tag> : null}
+                    </>
+                  ),
+                },
+                { title: 'Điểm hiện có', dataIndex: 'points', align: 'right', render: num },
+                { title: 'Điểm đã tích', dataIndex: 'lifetimePoints', align: 'right', render: num },
+                { title: 'Chi tiêu', dataIndex: 'totalSpent', align: 'right', render: money },
+                { title: 'Lượt ghé', dataIndex: 'visitCount', align: 'right' },
+                { title: 'Ghé gần nhất', dataIndex: 'lastVisitAt', render: datetime },
+              ]}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} lg={10}>
+          <Card title="Mini App đã dùng" size="small">
+            <Table
+              size="small"
+              rowKey="id"
+              pagination={false}
+              dataSource={c.zaloAccounts}
+              locale={{ emptyText: 'Chưa đăng nhập Mini App nào' }}
+              columns={[
+                { title: 'Thương hiệu', render: (_, a) => a.brand.name },
+                { title: 'Quan tâm OA', dataIndex: 'followedOA', render: (v: boolean) => (v ? <Tag color="green">Có</Tag> : <Tag>Chưa</Tag>) },
+                { title: 'Lần đầu', dataIndex: 'createdAt', render: date },
+                { title: 'Đăng nhập gần nhất', dataIndex: 'lastLoginAt', render: datetime },
+              ]}
+            />
+          </Card>
+        </Col>
         <Col span={24}>
           <Card>
+            <Typography.Text type="secondary">
+              Hoá đơn, đặt bàn, voucher và lịch sử điểm dưới đây chỉ thuộc thương hiệu <b>{brandName}</b>. Đổi thương hiệu ở thanh trên để xem nơi khác.
+            </Typography.Text>
             <Tabs
               items={[
                 {
                   key: 'orders',
-                  label: `Hoá đơn (${c.orders.length})`,
+                  label: `Hoá đơn tại ${brandName} (${c.orders.length})`,
                   children: (
                     <Table
                       size="small"
@@ -363,26 +420,19 @@ function PointsModal({ open, customer, onClose, onSaved }: ModalProps) {
       destroyOnHidden
     >
       <Typography.Paragraph type="secondary">
-        Điểm hiện có: <b>{num(customer.points)}</b> · Điểm tích luỹ: <b>{num(customer.lifetimePoints)}</b>
+        Điểm hiện có tại thương hiệu này: <b>{num(customer.wallet?.points ?? 0)}</b>. Điểm điều chỉnh chỉ ảnh hưởng ví của thương hiệu đang chọn, không ảnh hưởng hạng.
       </Typography.Paragraph>
       <Form
         form={form}
         layout="vertical"
         preserve={false}
-        initialValues={{ mode: 'add', affectTier: false }}
-        onFinish={async (v: { mode: 'add' | 'sub'; amount: number; description: string; affectTier: boolean }) => {
+        initialValues={{ mode: 'add' }}
+        onFinish={async (v: { mode: 'add' | 'sub'; amount: number; description: string }) => {
           setSaving(true);
           try {
             const points = v.mode === 'add' ? v.amount : -v.amount;
-            const res = await api.post<{ tierUp: boolean; customer: { points: number; tier: { name: string } | null } }>(
-              `/customers/${customer.id}/points`,
-              { points, description: v.description, affectTier: v.affectTier },
-            );
-            message.success(
-              `Đã ${points > 0 ? 'cộng' : 'trừ'} ${num(Math.abs(points))} điểm. Số dư: ${num(res.customer.points)}${
-                res.tierUp && res.customer.tier ? ` – lên hạng ${res.customer.tier.name}!` : ''
-              }`,
-            );
+            const res = await api.post<{ wallet: Wallet }>(`/customers/${customer.id}/points`, { points, description: v.description });
+            message.success(`Đã ${points > 0 ? 'cộng' : 'trừ'} ${num(Math.abs(points))} điểm. Số dư: ${num(res.wallet.points)}`);
             onClose();
             onSaved();
           } catch (e) {
@@ -403,9 +453,6 @@ function PointsModal({ open, customer, onClose, onSaved }: ModalProps) {
         </Form.Item>
         <Form.Item name="description" label="Lý do" rules={[{ required: true, whitespace: true, message: 'Nhập lý do' }]}>
           <Input placeholder="VD: Bù điểm hoá đơn giấy, tặng sự kiện..." maxLength={200} />
-        </Form.Item>
-        <Form.Item name="affectTier" valuePropName="checked" extra="Nếu chọn, số điểm này cũng được cộng/trừ vào điểm tích luỹ dùng để xét hạng.">
-          <Checkbox>Tính vào điểm xét hạng</Checkbox>
         </Form.Item>
       </Form>
     </Modal>

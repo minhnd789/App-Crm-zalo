@@ -20,6 +20,7 @@ import { datetime, money, num } from '../utils/format';
 import { PageHeader } from '../components/PageHeader';
 import { StatusTag } from '../components/StatusTag';
 import { Button } from 'antd';
+import { useAuth } from '../auth/AuthContext';
 
 const PRIMARY = '#d4380d';
 
@@ -41,6 +42,7 @@ function StatCard({ title, value, icon, suffix, to }: { title: string; value: Re
 }
 
 export default function DashboardPage() {
+  const { brand } = useAuth();
   const { data, loading, reload } = useRequest(() => api.get<Dashboard>('/dashboard'), []);
   const [metric, setMetric] = useState<'revenue' | 'orders'>('revenue');
 
@@ -52,7 +54,7 @@ export default function DashboardPage() {
   return (
     <>
       <PageHeader
-        title="Tổng quan"
+        title={`Tổng quan${brand ? ` – ${brand.name}` : ''}`}
         subtitle={`Cập nhật lúc ${dayjs().format('HH:mm DD/MM/YYYY')}`}
         extra={
           <Button icon={<ReloadOutlined />} loading={loading} onClick={() => reload()}>
@@ -62,10 +64,10 @@ export default function DashboardPage() {
       />
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard title="Khách hàng" value={num(data.totalCustomers)} icon={<TeamOutlined />} to="/customers" />
+          <StatCard title="Thành viên của thương hiệu" value={num(data.totalCustomers)} icon={<TeamOutlined />} to="/customers?onlyBrand=true" />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard title="Khách mới hôm nay" value={num(data.newCustomersToday)} icon={<UserAddOutlined />} />
+          <StatCard title="Thành viên mới hôm nay" value={num(data.newCustomersToday)} icon={<UserAddOutlined />} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <StatCard title="Đặt bàn hôm nay" value={num(data.bookingsToday)} icon={<CalendarOutlined />} to="/bookings" />
@@ -130,7 +132,7 @@ export default function DashboardPage() {
           </Card>
         </Col>
         <Col xs={24} xl={8}>
-          <Card title="Phân bố hạng thành viên" style={{ height: '100%' }}>
+          <Card title="Phân bố hạng (thành viên thương hiệu)" style={{ height: '100%' }}>
             {tierData.length === 0 ? (
               <Empty description="Chưa có khách hàng" />
             ) : (

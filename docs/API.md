@@ -123,7 +123,7 @@ Các API đánh dấu 🏷 là dữ liệu theo thương hiệu, cần header `X
 | GET 🏷 | `/dashboard` | `{ totalCustomers, newCustomersToday, bookingsToday, pendingBookings, revenueToday, ordersToday, revenueMonth, ordersMonth, vouchersUsedMonth, tierDistribution: {id,name,color,count}[], revenueByDay: {date,revenue,orders}[], recentOrders, upcomingBookings }` |
 | GET | `/customers?q=&tierId=&onlyBrand=true&sort=createdAt\|totalSpent\|lastVisitAt&page=` | Phân trang khách dùng chung (+ `tier`, `brandIds` đã dùng Mini App, `wallet` của thương hiệu đang chọn nếu có X-Brand-Id). `onlyBrand=true` = chỉ khách đã có ví ở thương hiệu đang chọn |
 | GET 🏷 | `/customers/lookup?q=<SĐT hoặc mã thành viên>` | Khách + `wallet` + `vouchers` (AVAILABLE) + `bookings` (đang mở) **của thương hiệu đang chọn**. 400 nếu `q` rỗng, 404 nếu không có |
-| GET | `/customers/:id` | Chi tiết: `tier, nextTier, amountToNextTier, wallets[] (+brand), zaloAccounts[] (+brand), wallet` (ví thương hiệu đang chọn), `orders, bookings, vouchers, pointTransactions` (lọc theo thương hiệu đang chọn nếu có X-Brand-Id, mỗi bản ghi kèm `brand`) |
+| GET | `/customers/:id` | Chi tiết: `tier, nextTier, amountToNextTier, wallets[] (+brand), zaloAccounts[] (+brand) – tài khoản gắn thương hiệu chỉ thấy ví/tài khoản của thương hiệu mình, wallet` (ví thương hiệu đang chọn), `orders, bookings, vouchers, pointTransactions` (lọc theo thương hiệu đang chọn nếu có X-Brand-Id, mỗi bản ghi kèm `brand`) |
 | PUT | `/customers/:id` | `{ name?, phone?, birthday?, gender?, note? }` |
 | POST 🏷 | `/customers/:id/points` 🔒 | `{ points: số +/-, description }` → `{ wallet }` (ví thương hiệu đang chọn; không ảnh hưởng hạng) |
 | POST 🏷 | `/customers/:id/vouchers` | Tặng voucher của thương hiệu `{ voucherId }` |
@@ -132,7 +132,7 @@ Các API đánh dấu 🏷 là dữ liệu theo thương hiệu, cần header `X
 | PATCH 🏷 | `/bookings/:id` | `{ status?, adminNote?, notify?: boolean (mặc định true – nhắn tin OA cho khách) }` – luồng: PENDING→CONFIRMED/CANCELLED; CONFIRMED→ARRIVED/CANCELLED/NO_SHOW/PENDING; ARRIVED→COMPLETED/CONFIRMED; CANCELLED→PENDING; NO_SHOW→CONFIRMED (cho phép hoàn tác thao tác nhầm) |
 | GET 🏷 | `/orders?q=&customerId=&branchId=&status=&from=&to=&page=` | Phân trang + `sumTotal`, `sumPoints` |
 | GET 🏷 | `/orders/:id` | Chi tiết |
-| POST 🏷 | `/orders` | `{ customerId, branchId?, bookingId?, items: [{name, quantity, price}], subtotal? (khi không nhập món), discount?, voucherCode?, note? }` → `{ order, tierUp, tier }`. `bookingId` phải đang PENDING/CONFIRMED/ARRIVED và sẽ chuyển sang COMPLETED |
+| POST 🏷 | `/orders` | `{ customerId, branchId?, bookingId?, items: [{name, quantity, price}], subtotal? (khi không nhập món), discount?, voucherCode?, note? }` → `{ order, tierUp, tier, balance }` (balance = điểm ví thương hiệu sau khi cộng). `bookingId` phải đang PENDING/CONFIRMED/ARRIVED và sẽ chuyển sang COMPLETED |
 | POST 🏷 | `/orders/:id/cancel` 🔒 | Huỷ hoá đơn, hoàn điểm |
 | GET 🏷 | `/vouchers?q=&type=free\|points&page=` | Phân trang voucher (+ `usedCount`) |
 | GET 🏷 | `/vouchers/check?code=&amount=` | Kiểm tra mã voucher của khách → `CustomerVoucher & { valid, reason, discount }` |

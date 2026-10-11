@@ -1,4 +1,5 @@
 import { useAuth } from './AuthContext';
-import { isManager } from './roles';
+import { isManager, isSuperAdmin } from './roles';
 
 export const useIsManager = () => isManager(useAuth().user);
+export const useIsSuperAdmin = () => isSuperAdmin(useAuth().user);

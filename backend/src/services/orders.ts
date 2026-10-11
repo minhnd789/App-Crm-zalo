@@ -146,7 +146,7 @@ export async function createOrder(brand: Brand, input: CreateOrderInput, adminId
     void sendOAMessage(brand.zaloOaAccessToken, account.zaloOAId, msg);
   }
 
-  return { order, tierUp: result.tierUp, tier: result.tier };
+  return { order, tierUp: result.tierUp, tier: result.tier, balance: result.balance };
 }
 
 /** Huỷ hoá đơn: trừ lại điểm đã cộng, trả lại voucher, giảm tổng chi tiêu và xét lại hạng */

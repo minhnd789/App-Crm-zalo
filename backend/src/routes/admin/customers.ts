@@ -51,10 +51,12 @@ customersRouter.get('/', async (req, res) => {
     }),
     prisma.customer.count({ where }),
   ]);
+  const own = req.admin!.brandId;
   const items = rows.map(({ wallets, zaloAccounts, ...c }) => ({
     ...c,
     wallet: wallets?.[0] ?? null,
-    brandIds: zaloAccounts.map((a) => a.brandId),
+    // Tài khoản gắn thương hiệu không thấy khách dùng Mini App thương hiệu nào khác
+    brandIds: zaloAccounts.map((a) => a.brandId).filter((id) => own === null || id === own),
   }));
   res.json({ items, total, page, pageSize });
 });
@@ -112,6 +114,13 @@ customersRouter.get('/:id', async (req, res) => {
     },
   });
   if (!c) throw notFound('Khách hàng không tồn tại');
+  // Tài khoản gắn thương hiệu chỉ thấy ví điểm / tài khoản Zalo của thương hiệu mình
+  // (tổng chi tiêu chung vẫn hiển thị vì dùng để xét hạng)
+  const own = req.admin!.brandId;
+  if (own !== null) {
+    c.wallets = c.wallets.filter((w) => w.brandId === own);
+    c.zaloAccounts = c.zaloAccounts.filter((a) => a.brandId === own);
+  }
   res.json({ ...c, wallet: brandId ? (c.wallets.find((w) => w.brandId === brandId) ?? null) : null, ...(await membershipInfo(c)) });
 });
 

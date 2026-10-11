@@ -27,7 +27,8 @@ import {
 import type { InputRef } from 'antd';
 import { CrownOutlined, DeleteOutlined, PlusOutlined, QrcodeOutlined, SearchOutlined, UserOutlined, SwapOutlined } from '@ant-design/icons';
 import { api } from '../../api/client';
-import type { CustomerLookup, Order, Settings, Voucher, VoucherCheck } from '../../api/types';
+import type { CreateOrderResult, CustomerLookup, Settings, Voucher, VoucherCheck } from '../../api/types';
+import { useAuth } from '../../auth/AuthContext';
 import { useBranches } from '../../hooks/useCatalog';
 import { useRequest } from '../../hooks/useRequest';
 import { PageHeader } from '../../components/PageHeader';
@@ -69,6 +70,7 @@ export default function OrderCreatePage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const branches = useBranches();
+  const { brand } = useAuth();
   const { data: settings } = useRequest(() => api.get<Settings>('/settings'), []);
   const pointPerAmount = Number(settings?.pointPerAmount ?? 10000) || 10000;
 
@@ -93,7 +95,7 @@ export default function OrderCreatePage() {
   const [chosen, setChosen] = useState<ChosenVoucher | null>(null);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ order: Order; tierUp: boolean } | null>(null);
+  const [result, setResult] = useState<(CreateOrderResult & { balance: number }) | null>(null);
 
   const lookup = async (raw: string, presetBookingId?: number) => {
     const q = raw.trim();
@@ -211,13 +213,14 @@ export default function OrderCreatePage() {
         voucherCode: chosen && !voucherReason ? chosen.code : null,
         note: note.trim() || null,
       };
-      const res = await api.post<{ order: Order; tierUp: boolean }>('/orders', body);
+      const res = await api.post<CreateOrderResult>('/orders', body);
       try {
         if (branchId) localStorage.setItem(LAST_BRANCH_KEY, String(branchId));
       } catch {
         /* bỏ qua */
       }
-      setResult(res);
+      // Điểm sau hoá đơn = điểm ví trước đó + điểm vừa cộng (API không trả về số dư)
+      setResult({ ...res, balance: res.balance ?? (customer.wallet?.points ?? 0) + res.order.pointsEarned });
       window.scrollTo({ top: 0 });
     } catch (e) {
       message.error(errMsg(e));
@@ -272,7 +275,9 @@ export default function OrderCreatePage() {
                     +{num(result.order.pointsEarned)} điểm
                   </Typography.Text>
                 </div>
-                {c?.points !== undefined ? <div style={{ marginTop: 4 }}>Điểm hiện có: {num(c.points)}</div> : null}
+                <div style={{ marginTop: 4 }}>
+                  Điểm hiện có tại {brand?.name ?? 'thương hiệu'}: {num(result.balance)}
+                </div>
               </div>
             }
             extra={[
@@ -289,17 +294,17 @@ export default function OrderCreatePage() {
               </Link>,
             ]}
           >
-            {result.tierUp && c?.tier ? (
+            {result.tierUp && (result.tier ?? c?.tier) ? (
               <Alert
                 type="success"
                 showIcon
                 icon={<CrownOutlined />}
                 message={
                   <span>
-                    Chúc mừng! Khách đã lên hạng <TierTag tier={c.tier} />
+                    Chúc mừng! Khách đã lên hạng {(result.tier ?? c!.tier)!.name} <TierTag tier={result.tier ?? c!.tier} />
                   </span>
                 }
-                description={`Từ hoá đơn tiếp theo khách được nhân ×${c.tier.pointMultiplier} điểm.`}
+                description={`Hạng áp dụng ở mọi thương hiệu. Từ hoá đơn tiếp theo khách được nhân ×${(result.tier ?? c!.tier)!.pointMultiplier} điểm.`}
               />
             ) : null}
           </Result>
@@ -310,7 +315,11 @@ export default function OrderCreatePage() {
 
   return (
     <>
-      <PageHeader title="Tạo hoá đơn & tích điểm" subtitle="Tìm khách bằng SĐT hoặc quét mã thành viên, nhập hoá đơn để cộng điểm" />
+      <PageHeader
+        title="Tạo hoá đơn & tích điểm"
+        scoped
+        subtitle="Tìm khách bằng SĐT hoặc quét mã thành viên, nhập hoá đơn để cộng điểm vào ví của thương hiệu này"
+      />
       <Steps
         size="small"
         current={customer ? 1 : 0}
@@ -364,11 +373,18 @@ export default function OrderCreatePage() {
                 <Descriptions column={1} size="small" style={{ marginTop: 12 }} styles={{ label: { width: 150 } }}>
                   <Descriptions.Item label="SĐT">{customer.phone || '—'}</Descriptions.Item>
                   <Descriptions.Item label="Mã thành viên">{customer.memberCode}</Descriptions.Item>
-                  <Descriptions.Item label="Điểm hiện có">
-                    <b>{num(customer.points)}</b>
+                  <Descriptions.Item label={`Điểm tại ${brand?.name ?? 'thương hiệu'}`}>
+                    <b>{num(customer.wallet?.points ?? 0)}</b>
+                    {!customer.wallet ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {' '}
+                        (chưa có ví – sẽ tạo khi lưu hoá đơn)
+                      </Typography.Text>
+                    ) : null}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Điểm tích luỹ">{num(customer.lifetimePoints)}</Descriptions.Item>
-                  <Descriptions.Item label="Lượt ghé">{customer.visitCount}</Descriptions.Item>
+                  <Descriptions.Item label="Chi tiêu tại đây">{money(customer.wallet?.totalSpent ?? 0)}</Descriptions.Item>
+                  <Descriptions.Item label="Tổng chi tiêu">{money(customer.totalSpent)}</Descriptions.Item>
+                  <Descriptions.Item label="Lượt ghé (tất cả)">{customer.visitCount}</Descriptions.Item>
                   <Descriptions.Item label="Voucher khả dụng">{customer.vouchers.length}</Descriptions.Item>
                   {customer.note ? (
                     <Descriptions.Item label="Ghi chú">

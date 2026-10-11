@@ -5,12 +5,15 @@ import { api } from '../api/client';
 import type { AdminUser, Role } from '../api/types';
 import { useRequest } from '../hooks/useRequest';
 import { useAuth } from '../auth/AuthContext';
-import { ROLE_LABEL } from '../auth/roles';
+import { isSuperAdmin, ROLE_LABEL } from '../auth/roles';
+import { BrandDot } from '../components/BrandBadge';
+import type { Brand } from '../api/types';
 import { PageHeader } from '../components/PageHeader';
 import { datetime, errMsg } from '../utils/format';
 
 export default function AdminsPage() {
-  const { user } = useAuth();
+  const { user, brands } = useAuth();
+  const superAdmin = isSuperAdmin(user);
   const { message } = App.useApp();
   const { data, loading, reload } = useRequest(() => api.get<AdminUser[]>('/admins'), []);
   const [editing, setEditing] = useState<AdminUser | null>(null);
@@ -19,7 +22,11 @@ export default function AdminsPage() {
     <>
       <PageHeader
         title="Tài khoản quản trị"
-        subtitle="Quản lý: toàn quyền. Nhân viên: tạo hoá đơn, xử lý đặt bàn, tặng voucher, xem dữ liệu."
+        subtitle={
+          superAdmin
+            ? 'Tài khoản "Toàn hệ thống" thao tác mọi thương hiệu (Quản lý toàn hệ thống quản lý thương hiệu, hạng). Tài khoản gắn thương hiệu chỉ thấy thương hiệu đó.'
+            : `Tài khoản của thương hiệu ${brands[0]?.name ?? ''}. Quản lý: toàn quyền trong thương hiệu. Nhân viên: tạo hoá đơn, xử lý đặt bàn, tặng voucher.`
+        }
         extra={
           <Button
             type="primary"
@@ -42,6 +49,18 @@ export default function AdminsPage() {
           columns={[
             { title: 'Tên đăng nhập', dataIndex: 'username', render: (v, a) => (a.id === user?.id ? <>{v} <Tag>Bạn</Tag></> : v) },
             { title: 'Họ tên', dataIndex: 'name' },
+            {
+              title: 'Thương hiệu',
+              render: (_, a) =>
+                a.brandId === null ? (
+                  <Tag color="purple">Toàn hệ thống</Tag>
+                ) : (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <BrandDot color={brands.find((b) => b.id === a.brandId)?.primaryColor} />
+                    {a.brand?.name ?? brands.find((b) => b.id === a.brandId)?.name ?? `#${a.brandId}`}
+                  </span>
+                ),
+            },
             { title: 'Vai trò', dataIndex: 'role', render: (r: Role) => <Tag color={r === 'ADMIN' ? 'volcano' : 'blue'}>{ROLE_LABEL[r]}</Tag> },
             {
               title: 'Hoạt động',
@@ -82,7 +101,7 @@ export default function AdminsPage() {
           ]}
         />
       </Card>
-      <AdminModal open={open} admin={editing} selfId={user?.id} onClose={() => setOpen(false)} onSaved={() => reload()} />
+      <AdminModal open={open} admin={editing} selfId={user?.id} superAdmin={superAdmin} brands={brands} onClose={() => setOpen(false)} onSaved={() => reload()} />
     </>
   );
 }
@@ -93,18 +112,24 @@ interface AdminForm {
   role: Role;
   password?: string;
   active: boolean;
+  /** 0 = toàn hệ thống */
+  brandId: number;
 }
 
 function AdminModal({
   open,
   admin,
   selfId,
+  superAdmin,
+  brands,
   onClose,
   onSaved,
 }: {
   open: boolean;
   admin: AdminUser | null;
   selfId?: number;
+  superAdmin: boolean;
+  brands: Brand[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -115,8 +140,12 @@ function AdminModal({
   useEffect(() => {
     if (!open) return;
     form.resetFields();
-    form.setFieldsValue(admin ? { username: admin.username, name: admin.name, role: admin.role, active: admin.active ?? true } : { role: 'STAFF', active: true });
-  }, [open, admin, form]);
+    form.setFieldsValue(
+      admin
+        ? { username: admin.username, name: admin.name, role: admin.role, active: admin.active ?? true, brandId: admin.brandId ?? 0 }
+        : { role: 'STAFF', active: true, brandId: brands[0]?.id ?? 0 },
+    );
+  }, [open, admin, form, brands]);
   return (
     <Modal
       title={admin ? `Sửa tài khoản ${admin.username}` : 'Thêm tài khoản'}
@@ -139,10 +168,18 @@ function AdminModal({
                 name: v.name.trim(),
                 role: v.role,
                 active: v.active,
+                ...(superAdmin && !isSelf ? { brandId: v.brandId || null } : {}),
                 ...(v.password ? { password: v.password } : {}),
               });
             } else {
-              await api.post('/admins', { username: v.username.trim(), name: v.name.trim(), password: v.password, role: v.role });
+              // Quản lý thương hiệu: không gửi brandId → backend tự gán thương hiệu của mình
+              await api.post('/admins', {
+                username: v.username.trim(),
+                name: v.name.trim(),
+                password: v.password,
+                role: v.role,
+                ...(superAdmin ? { brandId: v.brandId || null } : {}),
+              });
             }
             message.success('Đã lưu tài khoản');
             onSaved();
@@ -168,6 +205,30 @@ function AdminModal({
         <Form.Item name="name" label="Họ tên" rules={[{ required: true, whitespace: true, message: 'Nhập họ tên' }]}>
           <Input maxLength={100} />
         </Form.Item>
+        {superAdmin ? (
+          <Form.Item
+            name="brandId"
+            label="Phạm vi / thương hiệu"
+            extra={isSelf ? 'Không thể tự đổi thương hiệu của chính mình' : 'Tài khoản gắn thương hiệu chỉ thao tác được trong thương hiệu đó'}
+          >
+            <Select
+              data-testid="admin-brand-select"
+              disabled={isSelf}
+              options={[
+                { value: 0, label: 'Toàn hệ thống' },
+                ...brands.map((b) => ({
+                  value: b.id,
+                  label: (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <BrandDot color={b.primaryColor} />
+                      {b.name}
+                    </span>
+                  ),
+                })),
+              ]}
+            />
+          </Form.Item>
+        ) : null}
         <Form.Item name="role" label="Vai trò" extra={isSelf ? 'Không thể tự hạ quyền tài khoản của chính mình' : undefined}>
           <Select
             disabled={isSelf}

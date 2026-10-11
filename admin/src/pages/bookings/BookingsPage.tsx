@@ -186,7 +186,7 @@ export default function BookingsPage() {
   return (
     <>
       <PageHeader
-        title="Đặt bàn"
+        title="Đặt bàn" scoped
         subtitle={data ? `${num(data.total)} lịch đặt bàn` : undefined}
         extra={
           <Button icon={<ReloadOutlined />} onClick={() => reload()} loading={loading}>

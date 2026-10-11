@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { App, Avatar, Button, Dropdown, Form, Grid, Input, Layout, Menu, Modal, Space, Tag, Typography, theme } from 'antd';
+import { App, Avatar, Button, Dropdown, Form, Grid, Input, Layout, Menu, Modal, Result, Select, Space, Tag, Typography, theme } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   BankOutlined,
@@ -19,23 +19,27 @@ import {
   TeamOutlined,
   UserOutlined,
   FileTextOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../auth/AuthContext';
-import { isManager, ROLE_LABEL } from '../auth/roles';
+import { isManager, isSuperAdmin, ROLE_LABEL } from '../auth/roles';
+import { BrandDot, BrandLabel } from '../components/BrandBadge';
 import { api } from '../api/client';
 import { errMsg } from '../utils/format';
 
 const { Sider, Header, Content } = Layout;
 
 export default function AdminLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, brands, brand, brandId, setBrandId } = useAuth();
   const manager = isManager(user);
+  const superAdmin = isSuperAdmin(user);
   const location = useLocation();
   const navigate = useNavigate();
   const screens = Grid.useBreakpoint();
   const [collapsed, setCollapsed] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const { token } = theme.useToken();
+  const { message } = App.useApp();
 
   const items: MenuProps['items'] = useMemo(
     () => [
@@ -52,16 +56,19 @@ export default function AdminLayout() {
       ...(manager
         ? ([
             { type: 'divider' },
+            ...(superAdmin ? [{ key: '/brands', icon: <AppstoreOutlined />, label: <Link to="/brands">Thương hiệu</Link> }] : []),
             { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">Cài đặt</Link> },
             { key: '/admins', icon: <BankOutlined />, label: <Link to="/admins">Tài khoản quản trị</Link> },
           ] as MenuProps['items'] & object[])
         : []),
     ],
-    [manager],
+    [manager, superAdmin],
   );
 
   // Chọn mục menu khớp dài nhất với đường dẫn hiện tại
-  const keys = ['/', '/orders/new', '/customers', '/bookings', '/orders', '/vouchers', '/promotions', '/tiers', '/branches', '/settings', '/admins'];
+  const keys = ['/', '/orders/new', '/customers', '/bookings', '/orders', '/vouchers', '/promotions', '/tiers', '/branches', '/brands', '/settings', '/admins'];
+  // Trang dùng chung không cần chọn thương hiệu
+  const globalPage = ['/brands', '/tiers', '/admins'].some((k) => location.pathname.startsWith(k));
   const selected =
     keys
       .filter((k) => (k === '/' ? location.pathname === '/' : location.pathname === k || location.pathname.startsWith(k + '/')))
@@ -123,29 +130,81 @@ export default function AdminLayout() {
             alignItems: 'center',
             justifyContent: 'space-between',
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            borderTop: `3px solid ${brand?.primaryColor || token.colorPrimary}`,
             position: 'sticky',
             top: 0,
             zIndex: 10,
           }}
         >
-          <Button
-            type="text"
-            aria-label="Thu gọn menu"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed(!collapsed)}
-          />
+          <Space size={12}>
+            <Button
+              type="text"
+              aria-label="Thu gọn menu"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed(!collapsed)}
+            />
+            {user && user.brandId === null && brands.length > 0 ? (
+              <Space size={8}>
+                {screens.md ? <Typography.Text type="secondary">Thương hiệu:</Typography.Text> : null}
+                <Select
+                  data-testid="brand-switcher"
+                  value={brandId ?? undefined}
+                  onChange={(id: number) => {
+                    setBrandId(id);
+                    const b = brands.find((x) => x.id === id);
+                    if (b) message.info(`Đang thao tác: ${b.name}`);
+                  }}
+                  style={{ minWidth: screens.md ? 240 : 160 }}
+                  popupMatchSelectWidth={false}
+                  options={brands.map((b) => ({ value: b.id, label: <BrandLabel brand={b} /> }))}
+                />
+              </Space>
+            ) : brand ? (
+              <Tag
+                data-testid="brand-fixed"
+                style={{ padding: '4px 10px', fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff' }}
+              >
+                <BrandDot color={brand.primaryColor} />
+                {brand.name}
+              </Tag>
+            ) : null}
+          </Space>
           <Dropdown menu={userMenu} trigger={['click']} placement="bottomRight">
             <Space style={{ cursor: 'pointer' }} data-testid="user-menu">
               <Avatar style={{ background: token.colorPrimary }} icon={<UserOutlined />} />
               <span style={{ lineHeight: 1.2 }}>
                 <Typography.Text strong>{user?.name}</Typography.Text>{' '}
-                {user ? <Tag color={manager ? 'volcano' : 'blue'}>{ROLE_LABEL[user.role]}</Tag> : null}
+                {user ? (
+                  <Tag color={superAdmin ? 'purple' : manager ? 'volcano' : 'blue'}>
+                    {superAdmin ? 'Quản trị hệ thống' : ROLE_LABEL[user.role]}
+                  </Tag>
+                ) : null}
               </span>
             </Space>
           </Dropdown>
         </Header>
         <Content style={{ padding: screens.md ? 24 : 12 }}>
-          <Outlet />
+          {!brandId && !globalPage ? (
+            <Result
+              status="info"
+              title="Chưa có thương hiệu"
+              subTitle={
+                superAdmin ? 'Hãy tạo thương hiệu đầu tiên để bắt đầu quản lý.' : 'Tài khoản chưa được gán thương hiệu nào, liên hệ quản trị hệ thống.'
+              }
+              extra={
+                superAdmin ? (
+                  <Link to="/brands">
+                    <Button type="primary">Quản lý thương hiệu</Button>
+                  </Link>
+                ) : null
+              }
+            />
+          ) : (
+            // Đổi thương hiệu → dựng lại trang để tải lại dữ liệu
+            <div key={brandId ?? 'none'}>
+              <Outlet />
+            </div>
+          )}
         </Content>
       </Layout>
       <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />

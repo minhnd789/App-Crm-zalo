@@ -1,7 +1,20 @@
 # Trang quản trị CRM nhà hàng
 
 Trang web quản trị (dành cho quản lý và nhân viên nhà hàng), tách riêng với Zalo Mini App của khách hàng.
-Gọi API `/api/admin` của backend trong thư mục `backend/`.
+Gọi API `/api/admin` của backend trong thư mục `backend/`. Một trang quản trị dùng cho **nhiều thương hiệu**
+(mỗi thương hiệu có Zalo Mini App + OA riêng, chung 1 backend/CSDL).
+
+## Đa thương hiệu
+
+- **Chọn thương hiệu** ở thanh trên cùng (chấm màu + tên). Lựa chọn được lưu trong trình duyệt và gửi kèm mọi request
+  qua header `X-Brand-Id`; đổi thương hiệu sẽ tải lại dữ liệu trang đang xem. Tiêu đề các trang theo thương hiệu
+  có tag tên thương hiệu.
+- **Tài khoản toàn hệ thống** (`brandId = null`) được đổi qua lại giữa các thương hiệu. **Tài khoản gắn thương hiệu**
+  chỉ thấy thương hiệu của mình (hiện cố định, không có ô chọn).
+- **Quản trị toàn hệ thống** (vai trò Quản lý + toàn hệ thống) quản lý trang *Thương hiệu* và *Hạng thành viên*.
+- Dữ liệu **theo thương hiệu**: tổng quan, đặt bàn, hoá đơn, ví điểm, voucher, chương trình ưu đãi, chi nhánh, cài đặt tích điểm.
+- Dữ liệu **dùng chung**: khách hàng (nhận diện theo SĐT / mã thành viên), hạng thành viên (xét theo **tổng chi tiêu ở mọi
+  thương hiệu**). Điểm nằm trong ví riêng từng thương hiệu.
 
 **Công nghệ:** Vite + React 18 + TypeScript, Ant Design 5 (tiếng Việt), React Router, Recharts, html5-qrcode (quét QR thành viên bằng camera).
 
@@ -12,18 +25,19 @@ Gọi API `/api/admin` của backend trong thư mục `backend/`.
 | Đăng nhập | `/login` | |
 | Tổng quan | `/` | Số liệu, biểu đồ doanh thu 30 ngày, phân bố hạng, lịch đặt bàn sắp tới, hoá đơn gần đây |
 | Tạo hoá đơn & tích điểm | `/orders/new` | Tìm khách theo SĐT / mã thành viên / quét QR → nhập món hoặc tổng tiền, giảm giá, voucher → cộng điểm |
-| Khách hàng | `/customers`, `/customers/:id` | Tìm kiếm, lọc hạng, sửa thông tin, cộng/trừ điểm (Quản lý), tặng voucher |
+| Khách hàng | `/customers`, `/customers/:id` | Khách dùng chung; lọc "chỉ thành viên của thương hiệu này"; ví điểm theo từng thương hiệu, Mini App đã dùng; cộng/trừ điểm ví (Quản lý), tặng voucher |
 | Đặt bàn | `/bookings` | Lọc theo ngày/trạng thái/chi nhánh, xác nhận, khách đến, không đến, huỷ, tạo hoá đơn từ lịch |
 | Hoá đơn | `/orders` | Danh sách + tổng doanh thu/điểm, chi tiết, huỷ hoá đơn (Quản lý – tự trừ lại điểm) |
 | Voucher | `/vouchers`, `/vouchers/:id` | Tạo/sửa (Quản lý), tặng hàng loạt, kiểm tra mã voucher |
 | Chương trình ưu đãi | `/promotions` | Bài viết/banner hiển thị trên Mini App |
-| Hạng thành viên | `/tiers` | Mức điểm, hệ số nhân điểm, màu, quyền lợi |
+| Hạng thành viên | `/tiers` | Dùng chung: mức chi tiêu tối thiểu, hệ số nhân điểm, màu, quyền lợi (chỉ quản trị toàn hệ thống sửa) |
 | Chi nhánh | `/branches` | Giờ mở cửa, ảnh, bật/tắt |
-| Cài đặt | `/settings` | Chỉ Quản lý |
-| Tài khoản quản trị | `/admins` | Chỉ Quản lý |
+| Thương hiệu | `/brands` | Chỉ quản trị toàn hệ thống: tên, mã, logo, màu, hotline, giới thiệu, Zalo App/OA ID, secret key & OA token (chỉ ghi) |
+| Cài đặt | `/settings` | Quản lý: cài đặt tích điểm & đặt bàn của thương hiệu |
+| Tài khoản quản trị | `/admins` | Quản lý: quản trị toàn hệ thống gán tài khoản cho thương hiệu; quản lý thương hiệu chỉ tạo/sửa tài khoản trong thương hiệu mình |
 
-Phân quyền: **Quản lý (ADMIN)** toàn quyền. **Nhân viên (STAFF)** tạo hoá đơn, xử lý đặt bàn, tặng voucher cho từng khách,
-xem dữ liệu; các nút chỉ dành cho Quản lý sẽ bị ẩn.
+Phân quyền: **Quản lý (ADMIN)** toàn quyền trong phạm vi của mình (toàn hệ thống hoặc 1 thương hiệu).
+**Nhân viên (STAFF)** tạo hoá đơn, xử lý đặt bàn, tặng voucher cho từng khách, xem dữ liệu; các nút không có quyền sẽ bị ẩn.
 
 ## Cấu hình
 
@@ -46,7 +60,8 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-Tài khoản mặc định do seed backend tạo: `admin` / `admin123` (đổi ngay sau khi đăng nhập: menu tên người dùng → Đổi mật khẩu).
+Tài khoản mặc định do seed backend tạo: `admin` / `admin123` – quản trị toàn hệ thống (đổi mật khẩu ngay sau khi đăng nhập:
+menu tên người dùng → Đổi mật khẩu). Tạo tài khoản cho từng thương hiệu ở trang *Tài khoản quản trị*.
 
 Các lệnh khác:
 
@@ -73,7 +88,9 @@ Bản build là các file tĩnh trong `dist/`, có thể đặt trên bất kỳ
    CORS_ORIGINS=https://admin.nhahang.vn
    ```
 
-   (nhiều origin phân tách bằng dấu phẩy, ví dụ thêm origin của Mini App) rồi khởi động lại backend.
+   (nhiều origin phân tách bằng dấu phẩy, ví dụ thêm origin của Mini App các thương hiệu) rồi khởi động lại backend.
+   Backend cần cho phép header `X-Brand-Id` trong CORS (thư viện `cors` mặc định phản hồi theo header client yêu cầu).
+   Chỉ cần **một** trang quản trị cho mọi thương hiệu.
 
 3. Vì dùng định tuyến phía trình duyệt (React Router), máy chủ web phải trả về `index.html` cho mọi đường dẫn không phải file.
 
@@ -123,10 +140,10 @@ Chép nội dung `dist/` lên máy chủ: `rsync -av --delete dist/ user@server:
 
 ```
 src/
-  api/          client.ts (fetch + token, tự đăng xuất khi 401), types.ts
-  auth/         AuthContext, RequireAuth/RequireManager, isManager
+  api/          client.ts (fetch + token + X-Brand-Id, tự đăng xuất khi 401), types.ts
+  auth/         AuthContext (admin + thương hiệu đang chọn), RequireAuth/RequireManager/RequireSuperAdmin, isManager/isSuperAdmin
   layouts/      AdminLayout (menu bên trái, đổi mật khẩu, đăng xuất)
-  components/   StatusTag, TierTag, ImageUpload, OrderDrawer, QrScanModal, ...
+  components/   StatusTag, TierTag, BrandBadge, ImageUpload, OrderDrawer, QrScanModal, ...
   hooks/        useRequest, useTiers/useBranches
   pages/        các trang theo bảng ở trên
   utils/        format.ts (tiền 1.234.000đ, ngày DD/MM/YYYY HH:mm), voucher.ts

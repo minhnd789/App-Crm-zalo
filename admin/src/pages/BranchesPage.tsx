@@ -24,7 +24,7 @@ export default function BranchesPage() {
   return (
     <>
       <PageHeader
-        title="Chi nhánh"
+        title="Chi nhánh" scoped
         extra={
           manager ? (
             <Button

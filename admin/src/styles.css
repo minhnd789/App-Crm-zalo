@@ -20,3 +20,4 @@ body {
 .stat-card .ant-statistic-title {
   margin-bottom: 4px;
 }
+.row-current td { background: #fff7e6 !important; }
