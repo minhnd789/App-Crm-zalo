@@ -27,7 +27,51 @@ Mỗi **cơ sở** (trang quản trị → Cơ sở) khai báo **Mã POS** = mã
 
 ---
 
-## 1. CRM → r_keeper: khách hàng mới / cập nhật
+## 0. Kết nối thật với DCorp (đã có tài liệu): API đăng ký thành viên RK7 CRM
+
+Theo tài liệu *DCorp Loyalty – API tích hợp Dcorp ↔ CNV*, CRM gửi khách đăng ký thành viên sang RK7 CRM (qua SkyCRM).
+Chọn **Cách gửi khách = DCorp** trong cấu hình thương hiệu và nhập thông tin DCorp cấp:
+
+| Thông tin | Sandbox (UAT) | Production |
+|---|---|---|
+| Base URL | `https://api-stg.dcorp.com.vn` | `https://api.dcorp.com.vn` |
+| client_id / client_secret | DCorp cấp cho UAT | DCorp cấp cho PROD |
+| organization | DCorp cấp (UAT) | DCorp cấp (PROD) |
+
+> client_id / client_secret là thông tin bí mật: chỉ nhập trên trang quản trị, **không** ghi vào mã nguồn / git.
+
+Luồng: CRM gọi `POST /auth/token` (`grant_type: client_credentials`) lấy access token (cache tới khi gần hết hạn,
+tự lấy lại khi nhận 401), rồi `POST /crm/cnv/register`:
+
+| Trường DCorp | Lấy từ CRM |
+|---|---|
+| `firstName`, `middleName`, `lastName` | Tách họ tên theo ví dụ của DCorp: từ đầu → `firstName`, từ cuối → `lastName`, phần giữa → `middleName` ("Trần Văn Quý" → Trần / Văn / Quý). Bỏ ký tự không phải chữ, cắt theo độ dài tối đa |
+| `phone` | SĐT khách (lấy từ Zalo khi đăng ký) |
+| `dateOfBirth` | Ngày sinh khách khai khi đăng ký, dạng `YYYY-MM-DDT00:00:00+07:00` |
+| `gender` | Nam → 0, Nữ → 1, chưa rõ → không gửi |
+| `email` | Không gửi (DCorp tự lấy SĐT làm email) |
+| `organization` | Mã tổ chức cấu hình theo thương hiệu |
+
+Xử lý kết quả:
+
+| DCorp trả | CRM xử lý |
+|---|---|
+| 200 `success: true` | Thành công, đánh dấu khách đã đồng bộ |
+| 400 mã `105` (Customer exist already) | Coi như thành công (khách đã có trên RK7 CRM) |
+| 400 mã `110` (Sync customer failed), 5xx, mất kết nối | Tự gửi lại (2, 4, 8… phút, tối đa 8 lần) |
+| 400 mã khác (107, 108, 109, 129–135, 132…) | Lỗi dữ liệu / cấu hình → **không** tự gửi lại, hiện trên trang Đồng bộ POS để sửa rồi bấm Gửi lại |
+| 401 | Lấy token mới và thử lại 1 lần; vẫn lỗi → báo sai client_id/secret |
+
+Nút **Kiểm tra kết nối DCorp** trên trang quản trị lấy thử access token để xác nhận cấu hình.
+
+**Còn chờ DCorp:** tài liệu hiện tại chỉ có chiều đăng ký thành viên. Chiều **bill thanh toán → CRM**
+(để cộng điểm tích luỹ và chi tiêu nâng hạng) CRM đã sẵn sàng ở mục 2 bên dưới; cần DCorp xác nhận
+họ sẽ gọi API này (hoặc cung cấp API/webhook bill của họ để CRM lấy về). Cũng cần xác nhận cách tách họ tên
+(tài liệu ghi `lastName` là "Họ" nhưng ví dụ lại đặt họ ở `firstName`).
+
+---
+
+## 1. (Connector tự viết) CRM → POS qua webhook: khách hàng mới / cập nhật
 
 Khi khách **hoàn tất đăng ký thành viên** trên Mini App (hoặc đổi cơ sở, hoặc quản trị sửa thông tin), CRM gửi:
 
@@ -82,7 +126,7 @@ if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers['x-cr
 
 ---
 
-## 2. r_keeper → CRM: bill thanh toán (cộng điểm & chi tiêu xét hạng)
+## 2. r_keeper / DCorp → CRM: bill thanh toán (cộng điểm & chi tiêu xét hạng)
 
 Khi bill được **đóng / thanh toán** bên r_keeper, connector gọi:
 

@@ -35,6 +35,13 @@ model Brand {
   posApiKeyHash     String? // sha256 của API key POS dùng để gửi bill về – bí mật
   posWebhookUrl     String? // URL nhận khách hàng mới từ CRM (connector r_keeper / DCorp)
   posWebhookSecret  String? // khoá ký HMAC khi CRM gửi sang POS – bí mật
+  // Cách gửi khách mới sang POS: WEBHOOK (connector tự viết, đặc tả docs/POS-INTEGRATION.md)
+  // hoặc DCORP (API đăng ký thành viên RK7 CRM của DCorp: POST /crm/cnv/register)
+  posProvider       String   @default("WEBHOOK") // WEBHOOK | DCORP
+  dcorpBaseUrl      String? // https://api-stg.dcorp.com.vn (sandbox) | https://api.dcorp.com.vn (production)
+  dcorpClientId     String?
+  dcorpClientSecret String? // bí mật – không bao giờ trả về API
+  dcorpOrganization Int? // mã tổ chức do DCorp cấp (UAT / PROD khác nhau)
   active            Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

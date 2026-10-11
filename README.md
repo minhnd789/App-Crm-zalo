@@ -108,8 +108,8 @@ Hoá đơn chỉ đến từ phần mềm bán hàng r_keeper (`POST /api/pos/bi
 
 ## Kết nối phần mềm bán hàng r_keeper (DCorp)
 
-- **Khách đăng ký thành viên** trên Mini App → CRM gửi thông tin khách (tên, SĐT, ngày sinh, cơ sở, mã thành viên, hạng)
-  sang connector r_keeper qua webhook có ký HMAC, tự gửi lại khi lỗi; lưu lại mã khách bên r_keeper.
+- **Khách đăng ký thành viên** trên Mini App → CRM tạo thành viên trên **RK7 CRM qua API DCorp** (`/crm/cnv/register`,
+  token client_credentials) – hoặc gửi webhook ký HMAC tới connector tự viết. Hàng đợi tự gửi lại khi lỗi tạm thời.
 - **Khách thanh toán** → connector gửi bill về `POST /api/pos/bills` → CRM cộng **điểm tích luỹ** vào ví thương hiệu
   và cộng **chi tiêu xét hạng** (thăng hạng tự động). Chống ghi nhận trùng theo mã bill; bill huỷ thì hoàn điểm.
 - Bill không nhận diện được khách / cơ sở được lưu lại để quản trị gán khách và xử lý trên trang **Đồng bộ POS**.

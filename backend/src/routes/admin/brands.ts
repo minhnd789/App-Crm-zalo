@@ -4,6 +4,7 @@ import { prisma } from '../../db.js';
 import { idParam, updateSchemaOf } from '../../lib/http.js';
 import { publicBrand, requireSuperAdmin } from '../../lib/auth.js';
 import { rotatePosApiKey } from '../../services/pos.js';
+import { clearDcorpToken, getDcorpToken } from '../../lib/dcorp.js';
 
 /** Quản lý thương hiệu – chỉ quản trị toàn hệ thống */
 export const brandsRouter = Router();
@@ -31,17 +32,29 @@ const brandSchema = z.object({
   posEnabled: z.boolean().default(false),
   posWebhookUrl: z.url('URL không hợp lệ').max(1000).nullable().optional().or(z.literal('').transform(() => null)),
   posWebhookSecret: z.string().max(500).nullable().optional(),
+  /** WEBHOOK = connector tự viết; DCORP = API đăng ký thành viên RK7 CRM của DCorp */
+  posProvider: z.enum(['WEBHOOK', 'DCORP']).default('WEBHOOK'),
+  dcorpBaseUrl: z.url('URL không hợp lệ').max(200).nullable().optional().or(z.literal('').transform(() => null)),
+  dcorpClientId: z.string().trim().max(200).nullable().optional(),
+  dcorpClientSecret: z.string().max(500).nullable().optional(),
+  dcorpOrganization: z.number().int().positive().nullable().optional(),
   active: z.boolean().default(true),
 });
 
 /** Chuỗi rỗng ở trường bí mật nghĩa là "không đổi" */
 function dropEmptySecrets<
-  T extends { zaloAppSecretKey?: string | null; zaloOaAccessToken?: string | null; posWebhookSecret?: string | null },
+  T extends {
+    zaloAppSecretKey?: string | null;
+    zaloOaAccessToken?: string | null;
+    posWebhookSecret?: string | null;
+    dcorpClientSecret?: string | null;
+  },
 >(d: T): T {
   const r = { ...d };
   if (r.zaloAppSecretKey === '') delete r.zaloAppSecretKey;
   if (r.zaloOaAccessToken === '') delete r.zaloOaAccessToken;
   if (r.posWebhookSecret === '') delete r.posWebhookSecret;
+  if (r.dcorpClientSecret === '') delete r.dcorpClientSecret;
   return r;
 }
 
@@ -71,4 +84,16 @@ brandsRouter.post('/:id/pos-api-key', async (req, res) => {
   const id = idParam(req.params.id);
   await prisma.brand.findUniqueOrThrow({ where: { id } });
   res.json({ apiKey: await rotatePosApiKey(id) });
+});
+
+/** Kiểm tra kết nối DCorp: lấy thử access token bằng client_id/secret đã lưu */
+brandsRouter.post('/:id/dcorp-test', async (req, res) => {
+  const b = await prisma.brand.findUniqueOrThrow({ where: { id: idParam(req.params.id) } });
+  clearDcorpToken(b);
+  try {
+    await getDcorpToken(b);
+    res.json({ ok: true, message: 'Lấy access token DCorp thành công' });
+  } catch (e) {
+    res.json({ ok: false, message: e instanceof Error ? e.message : String(e) });
+  }
 });

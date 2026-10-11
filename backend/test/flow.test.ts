@@ -583,3 +583,151 @@ test('cập nhật 1 phần voucher không làm mất cấu hình khác', async 
   assert.equal(r.body.pointCost, v.pointCost);
   assert.equal(r.body.validDays, v.validDays);
 });
+
+// ---------------------------------------------------------------------------
+// DCorp – API đăng ký thành viên RK7 CRM (POST /auth/token, POST /crm/cnv/register)
+// Server giả lập theo đúng tài liệu DCorp; client id/secret là giá trị thử, không phải key thật.
+// ---------------------------------------------------------------------------
+test('DCorp: tách họ tên & chuyển đổi dữ liệu đăng ký', async () => {
+  const { splitVietnameseName, toDcorpRegister } = await import('../src/lib/dcorp.js');
+  assert.deepEqual(splitVietnameseName('Trần Văn Quý'), { firstName: 'Trần', middleName: 'Văn', lastName: 'Quý' });
+  assert.deepEqual(splitVietnameseName('Nguyễn Thị Minh Khai'), { firstName: 'Nguyễn', middleName: 'Thị Minh', lastName: 'Khai' });
+  assert.deepEqual(splitVietnameseName('  Lan  '), { firstName: undefined, middleName: undefined, lastName: 'Lan' });
+  assert.equal(splitVietnameseName('Lê 😀 Văn-An').middleName, 'Văn', 'bỏ ký tự không phải chữ');
+  const body = toDcorpRegister({ name: 'Trần Văn Quý', phone: '0879991235', birthday: new Date('1984-01-24T00:00:00Z'), gender: 'FEMALE' }, 1015);
+  assert.deepEqual(body, {
+    firstName: 'Trần',
+    middleName: 'Văn',
+    lastName: 'Quý',
+    phone: '0879991235',
+    dateOfBirth: '1984-01-24T00:00:00+07:00',
+    gender: 1,
+    organization: 1015,
+  });
+  assert.equal('gender' in toDcorpRegister({ name: 'A B', phone: '0900000000', birthday: new Date(), gender: null }, 1), false);
+});
+
+test('DCorp: khách đăng ký Mini App → tạo thành viên trên RK7 CRM', async () => {
+  const { createServer } = await import('node:http');
+  const { processOutbox } = await import('../src/services/pos.js');
+  const { clearDcorpToken } = await import('../src/lib/dcorp.js');
+
+  let tokenCalls = 0;
+  let expireNext = false;
+  const registered: any[] = [];
+  const server = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      const body = raw ? JSON.parse(raw) : {};
+      const send = (status: number, json: unknown) => {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(json));
+      };
+      if (req.url === '/auth/token') {
+        tokenCalls++;
+        if (body.client_id !== 'cnv-test' || body.client_secret !== 'test-secret' || body.grant_type !== 'client_credentials') {
+          return send(401, { error: 'invalid_client', error_description: 'Client authentication failed' });
+        }
+        return send(200, { access_token: `tok-${tokenCalls}`, token_type: 'Bearer', expires_in: 3600 });
+      }
+      if (req.url === '/crm/cnv/register') {
+        if (expireNext) {
+          expireNext = false;
+          return send(401, { success: false, error: 401, message: 'Unauthorized' });
+        }
+        if (!String(req.headers.authorization).startsWith('Bearer tok-')) return send(401, { success: false, error: 401, message: 'Unauthorized' });
+        if (body.organization !== 1015) return send(400, { success: false, error: 132, message: 'Organization not found' });
+        if (body.phone === '0900000108') return send(400, { success: false, error: 108, message: 'Mobile invalid' });
+        if (registered.some((r) => r.phone === body.phone)) return send(400, { success: false, error: 105, message: 'Customer exist already' });
+        registered.push(body);
+        return send(200, { success: true, data: {}, error: null, message: null });
+      }
+      send(404, {});
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const port = (server.address() as { port: number }).port;
+  const superAuth = { Authorization: `Bearer ${adminToken}` };
+
+  try {
+    const cfg = await request(app).put(`/api/admin/brands/${brandB}`).set(superAuth).send({
+      posEnabled: true,
+      posProvider: 'DCORP',
+      dcorpBaseUrl: `http://127.0.0.1:${port}`,
+      dcorpClientId: 'cnv-test',
+      dcorpClientSecret: 'test-secret',
+      dcorpOrganization: 1015,
+    });
+    assert.equal(cfg.status, 200, JSON.stringify(cfg.body));
+    assert.equal(cfg.body.dcorpClientSecret, undefined, 'không lộ secret');
+    assert.equal(cfg.body.hasDcorpClientSecret, true);
+    const brandRow = await prisma.brand.findUniqueOrThrow({ where: { id: brandB } });
+    clearDcorpToken(brandRow);
+
+    const test1 = await request(app).post(`/api/admin/brands/${brandB}/dcorp-test`).set(superAuth);
+    assert.equal(test1.body.ok, true);
+
+    // Bỏ các bản ghi gửi đi cũ của B (từ test trước) để dễ kiểm tra
+    await prisma.posSyncLog.deleteMany({ where: { brandId: brandB, direction: 'OUT' } });
+
+    const signUp = async (zaloId: string, name: string, phone: string, gender?: string) => {
+      const l = await request(app).post('/api/app/auth/login').set('X-Brand', 'BRAND_B').send({ mockZaloId: zaloId, name });
+      const t = { Authorization: `Bearer ${l.body.token}`, 'X-Brand': 'BRAND_B' };
+      if (gender) await request(app).put('/api/app/me').set(t).send({ gender });
+      const r = await request(app).post('/api/app/me/register').set(t).send({ name, birthday: '1984-01-24', branchId: branchB, phone });
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      await new Promise((x) => setTimeout(x, 50));
+      await processOutbox();
+      return r.body;
+    };
+
+    // 1. Đăng ký thành công
+    const c1 = await signUp('zalo-dc-1', 'Trần Văn Quý', '0879991235', 'MALE');
+    assert.equal(registered.length, 1);
+    assert.deepEqual(registered[0], {
+      firstName: 'Trần',
+      middleName: 'Văn',
+      lastName: 'Quý',
+      phone: '0879991235',
+      dateOfBirth: '1984-01-24T00:00:00+07:00',
+      gender: 0,
+      organization: 1015,
+    });
+    const logs1 = (await request(app).get('/api/admin/pos/logs?direction=OUT').set(admin(brandB))).body.items;
+    assert.equal(logs1[0].status, 'SUCCESS');
+    const w1 = await prisma.customerWallet.findUniqueOrThrow({ where: { customerId_brandId: { customerId: c1.id, brandId: brandB } } });
+    assert.ok(w1.posSyncedAt, 'đánh dấu đã đồng bộ');
+
+    // 2. Token bị thu hồi giữa chừng → tự lấy token mới và gửi lại
+    expireNext = true;
+    const before = tokenCalls;
+    await signUp('zalo-dc-2', 'Lê Thị Hoa', '0879991236', 'FEMALE');
+    assert.equal(tokenCalls, before + 1);
+    assert.equal(registered.at(-1).gender, 1);
+
+    // 3. Số điện thoại DCorp báo không hợp lệ → lỗi dữ liệu, không tự gửi lại
+    await signUp('zalo-dc-3', 'Phạm An', '0900000108');
+    const failed = (await request(app).get('/api/admin/pos/logs?direction=OUT&status=FAILED').set(admin(brandB))).body.items;
+    assert.equal(failed.length, 1);
+    assert.match(failed[0].error, /mã 108/);
+    assert.equal(failed[0].nextRetryAt, null);
+
+    // 4. Khách đã tồn tại bên DCorp (mã 105) → coi như đã đồng bộ
+    await prisma.posSyncLog.create({
+      data: { brandId: brandB, direction: 'OUT', type: 'CUSTOMER_UPSERT', customerId: c1.id, payload: '{}', nextRetryAt: new Date() },
+    });
+    await processOutbox();
+    const exist = (await request(app).get('/api/admin/pos/logs?direction=OUT&status=SUCCESS').set(admin(brandB))).body.items[0];
+    assert.match(exist.error, /105/);
+    assert.equal(registered.length, 2);
+
+    // 5. Sai client secret → kiểm tra kết nối báo lỗi
+    await request(app).put(`/api/admin/brands/${brandB}`).set(superAuth).send({ dcorpClientSecret: 'sai' });
+    const test2 = await request(app).post(`/api/admin/brands/${brandB}/dcorp-test`).set(superAuth);
+    assert.equal(test2.body.ok, false);
+    assert.match(test2.body.message, /Client authentication failed/);
+  } finally {
+    server.close();
+  }
+});

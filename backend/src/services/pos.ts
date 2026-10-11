@@ -2,8 +2,10 @@
  * Kết nối phần mềm bán hàng (r_keeper qua DCorp).
  *
  * - OUT (CRM → POS): khi khách đăng ký / cập nhật thông tin thành viên, CRM đưa sự kiện CUSTOMER_UPSERT vào hàng đợi
- *   và gửi tới `brand.posWebhookUrl` (connector r_keeper / DCorp), ký HMAC bằng `brand.posWebhookSecret`.
- *   Lỗi sẽ tự gửi lại với thời gian chờ tăng dần.
+ *   và gửi theo `brand.posProvider`:
+ *     - DCORP:   API đăng ký thành viên RK7 CRM của DCorp (POST /crm/cnv/register) – xem src/lib/dcorp.ts
+ *     - WEBHOOK: `brand.posWebhookUrl` (connector tự viết), ký HMAC bằng `brand.posWebhookSecret`
+ *   Lỗi tạm thời sẽ tự gửi lại với thời gian chờ tăng dần.
  * - IN (POS → CRM): POS gửi bill đã thanh toán về `POST /api/pos/bills` để cộng điểm tích luỹ (ví thương hiệu)
  *   và chi tiêu xét hạng (dùng chung). Bill trùng mã bị bỏ qua; bill huỷ thì hoàn điểm.
  *
@@ -14,6 +16,7 @@ import type { Brand, PosSyncLog, Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { HttpError, badRequest } from '../lib/errors.js';
 import { cancelOrder, createOrder } from './orders.js';
+import { DcorpError, dcorpRegisterMember } from '../lib/dcorp.js';
 
 const MAX_ATTEMPTS = 8;
 const WEBHOOK_TIMEOUT_MS = 10_000;
@@ -39,7 +42,13 @@ export async function enqueueCustomerUpsert(customerId: number, onlyBrandId?: nu
     where: {
       customerId,
       registeredAt: { not: null },
-      brand: { posEnabled: true, posWebhookUrl: { not: null } },
+      brand: {
+        posEnabled: true,
+        OR: [
+          { posProvider: 'WEBHOOK', posWebhookUrl: { not: null } },
+          { posProvider: 'DCORP', dcorpClientId: { not: null } },
+        ],
+      },
       ...(onlyBrandId ? { brandId: onlyBrandId } : {}),
     },
     select: { brandId: true },
@@ -91,9 +100,56 @@ export async function customerPayload(customerId: number, brandId: number) {
   };
 }
 
+async function retryOrFail(log: PosSyncLog, attempts: number, payload: string, error: string, retryable = true) {
+  const giveUp = !retryable || attempts >= MAX_ATTEMPTS;
+  const delayMin = Math.min(2 ** attempts, 360); // 2, 4, 8 ... tối đa 6 giờ
+  await prisma.posSyncLog.update({
+    where: { id: log.id },
+    data: {
+      status: giveUp ? 'FAILED' : 'PENDING',
+      attempts,
+      payload,
+      error,
+      nextRetryAt: giveUp ? null : new Date(Date.now() + delayMin * 60_000),
+    },
+  });
+}
+
+/** Gửi khách sang RK7 CRM qua API đăng ký thành viên của DCorp */
+async function deliverDcorp(log: PosSyncLog & { brand: Brand }, customerId: number) {
+  const attempts = log.attempts + 1;
+  const c = await prisma.customer.findUniqueOrThrow({ where: { id: customerId } });
+  let payload = JSON.stringify({ customerId });
+  try {
+    const r = await dcorpRegisterMember(log.brand, c);
+    payload = JSON.stringify(r.request);
+    await prisma.$transaction([
+      prisma.posSyncLog.update({
+        where: { id: log.id },
+        data: {
+          status: 'SUCCESS',
+          attempts,
+          payload,
+          response: r.response.slice(0, 2000),
+          error: r.alreadyExists ? 'Khách đã tồn tại bên DCorp (mã 105) – coi như đã đồng bộ' : null,
+          nextRetryAt: null,
+        },
+      }),
+      prisma.customerWallet.update({
+        where: { customerId_brandId: { customerId, brandId: log.brandId } },
+        data: { posSyncedAt: new Date() },
+      }),
+    ]);
+  } catch (e) {
+    const retryable = e instanceof DcorpError ? e.retryable : true;
+    await retryOrFail(log, attempts, payload, e instanceof Error ? e.message : String(e), retryable);
+  }
+}
+
 async function deliver(log: PosSyncLog & { brand: Brand }) {
   const brand = log.brand;
-  if (!brand.posEnabled || !brand.posWebhookUrl) {
+  const configured = brand.posProvider === 'DCORP' ? !!brand.dcorpClientId : !!brand.posWebhookUrl;
+  if (!brand.posEnabled || !configured) {
     await prisma.posSyncLog.update({ where: { id: log.id }, data: { status: 'IGNORED', error: 'Thương hiệu chưa bật kết nối POS', nextRetryAt: null } });
     return;
   }
@@ -103,11 +159,15 @@ async function deliver(log: PosSyncLog & { brand: Brand }) {
     await prisma.posSyncLog.update({ where: { id: log.id }, data: { status: 'IGNORED', error: 'Khách không còn tồn tại (đã gộp)', nextRetryAt: null } });
     return;
   }
+  if (brand.posProvider === 'DCORP') {
+    await deliverDcorp(log, customer.id);
+    return;
+  }
   const payload = await customerPayload(customer.id, brand.id);
   const body = JSON.stringify(payload);
   const attempts = log.attempts + 1;
   try {
-    const res = await fetch(brand.posWebhookUrl, {
+    const res = await fetch(brand.posWebhookUrl!, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -139,18 +199,7 @@ async function deliver(log: PosSyncLog & { brand: Brand }) {
       }),
     ]);
   } catch (e) {
-    const giveUp = attempts >= MAX_ATTEMPTS;
-    const delayMin = Math.min(2 ** attempts, 360); // 2, 4, 8 ... tối đa 6 giờ
-    await prisma.posSyncLog.update({
-      where: { id: log.id },
-      data: {
-        status: giveUp ? 'FAILED' : 'PENDING',
-        attempts,
-        payload: body,
-        error: e instanceof Error ? e.message : String(e),
-        nextRetryAt: giveUp ? null : new Date(Date.now() + delayMin * 60_000),
-      },
-    });
+    await retryOrFail(log, attempts, body, e instanceof Error ? e.message : String(e));
   }
 }
 
