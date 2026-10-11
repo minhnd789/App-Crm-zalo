@@ -20,8 +20,10 @@ Gọi API `/api/admin` của backend trong thư mục `backend/`. Một trang qu
   ("Sinh nhật tháng này"), hạng. Điểm nằm trong **ví riêng từng thương hiệu**; hạng dùng chung theo tổng chi tiêu.
 - **Hoá đơn chỉ đến từ phần mềm bán hàng (r_keeper qua DCorp)** – trang quản trị không tạo hoá đơn; chỉ xem lịch sử
   (nguồn POS, mã bill r_keeper) và Quản lý có thể huỷ hoá đơn sai để hoàn điểm. Xem `docs/POS-INTEGRATION.md`.
-- **Kết nối r_keeper** (trang *Thương hiệu* → "Kết nối phần mềm bán hàng"): bật kết nối, Webhook URL của connector,
-  Webhook secret (chỉ ghi) và **API key POS** – bấm "Tạo API key mới", key chỉ hiển thị 1 lần để gửi cho DCorp
+- **Kết nối r_keeper** (trang *Thương hiệu* → "Kết nối phần mềm bán hàng"): bật kết nối, chọn **cách gửi khách mới**:
+  *API DCorp (RK7 CRM)* – địa chỉ API (Sandbox UAT `https://api-stg.dcorp.com.vn` / Production `https://api.dcorp.com.vn`),
+  Client ID, Client secret (chỉ ghi), Organization, nút **Kiểm tra kết nối DCorp** (sau khi lưu) – hoặc *Connector tự viết*
+  (Webhook URL + Webhook secret). Không ghi client_id/secret thật vào mã nguồn. Ngoài ra **API key POS** – bấm "Tạo API key mới", key chỉ hiển thị 1 lần để gửi cho DCorp
   (key cũ ngừng hoạt động). Mỗi cơ sở khai báo **Mã POS** (mã nhà hàng bên r_keeper).
 - **Đồng bộ POS** (`/pos-sync`): nhật ký gửi khách sang POS / nhận bill từ POS, đếm theo trạng thái (Chờ gửi, Thành công,
   Lỗi, Chưa khớp, Bỏ qua), xem dữ liệu gửi/nhận; Quản lý có thể *Gửi lại*, *Xử lý lại* hoặc *Gán khách & xử lý* cho bill

@@ -90,11 +90,19 @@ interface BillPayload {
 }
 interface CustomerPayload {
   customer?: { name?: string; memberCode?: string; phone?: string };
+  // payload gửi API DCorp /crm/cnv/register
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  phone?: string;
+  organization?: number;
+  customerId?: number;
 }
 
 export default function PosSyncPage() {
   const { message } = App.useApp();
-  const { allBrands } = useAuth();
+  const { allBrands, brands } = useAuth();
+  const isDcorp = (r: PosSyncLog) => brands.find((b) => b.id === r.brandId)?.posProvider === 'DCORP';
   const manager = useIsManager();
   const [direction, setDirection] = useState<string | undefined>();
   const [status, setStatus] = useState<PosLogStatus | undefined>();
@@ -157,8 +165,9 @@ export default function PosSyncPage() {
       render: (_, r) => (
         <div>
           <Tag icon={DIRECTION[r.direction].icon} color={r.direction === 'IN' ? 'geekblue' : 'purple'} style={{ marginInlineEnd: 0 }}>
-            {DIRECTION[r.direction].short}
+            {r.direction === 'OUT' && isDcorp(r) ? 'CRM → DCorp' : DIRECTION[r.direction].short}
           </Tag>
+          {r.direction === 'OUT' && isDcorp(r) ? <div style={{ fontSize: 12, color: '#1677ff' }}>DCorp RK7 CRM</div> : null}
           <div style={{ fontSize: 12, marginTop: 2 }}>{POS_TYPE[r.type] ?? r.type}</div>
         </div>
       ),
@@ -182,13 +191,19 @@ export default function PosSyncPage() {
             </div>
           );
         }
-        const c = parse<CustomerPayload>(r.payload)?.customer;
+        const p = parse<CustomerPayload>(r.payload);
+        const c = p?.customer;
+        // Payload DCorp: { firstName, middleName, lastName, phone, organization }
+        const dcorpName = [p?.firstName, p?.middleName, p?.lastName].filter(Boolean).join(' ');
+        const name = c?.name ?? (dcorpName || r.customer?.name) ?? `Khách #${r.externalId ?? r.customerId}`;
+        const phone = c?.phone ?? p?.phone;
         return (
           <div style={{ lineHeight: 1.5 }}>
-            <Typography.Text strong>{c?.name ?? `Khách #${r.externalId ?? r.customerId}`}</Typography.Text>
+            <Typography.Text strong>{name}</Typography.Text>
             <div style={{ fontSize: 12, color: '#8c8c8c' }}>
               {c?.memberCode ? `Mã TV ${c.memberCode}` : ''}
-              {c?.phone ? ` · ${c.phone}` : ''}
+              {phone ? `${c?.memberCode ? ' · ' : ''}${phone}` : ''}
+              {p?.organization ? ` · org ${p.organization}` : ''}
             </div>
           </div>
         );
@@ -246,7 +261,7 @@ export default function PosSyncPage() {
               ) : null}
             </div>
             {r.error ? (
-              <Typography.Paragraph type="danger" style={{ fontSize: 12, margin: 0 }} ellipsis={{ rows: 2, tooltip: r.error }}>
+              <Typography.Paragraph type="danger" style={{ fontSize: 12, margin: '2px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} data-testid="pos-error">
                 {r.error}
               </Typography.Paragraph>
             ) : null}
@@ -398,11 +413,15 @@ export default function PosSyncPage() {
             expandedRowRender: (r) => (
               <Row gutter={16}>
                 <Col xs={24} lg={12}>
-                  <Typography.Text strong>{r.direction === 'IN' ? 'Dữ liệu bill nhận được' : 'Dữ liệu gửi đi'}</Typography.Text>
+                  <Typography.Text strong>
+                    {r.direction === 'IN' ? 'Dữ liệu bill nhận được' : isDcorp(r) ? 'Dữ liệu gửi DCorp (/crm/cnv/register)' : 'Dữ liệu gửi đi'}
+                  </Typography.Text>
                   <pre className="json-block">{pretty(r.payload)}</pre>
                 </Col>
                 <Col xs={24} lg={12}>
-                  <Typography.Text strong>{r.direction === 'IN' ? 'Phản hồi CRM' : 'Phản hồi connector'}</Typography.Text>
+                  <Typography.Text strong>
+                    {r.direction === 'IN' ? 'Phản hồi CRM' : isDcorp(r) ? 'Phản hồi DCorp RK7 CRM' : 'Phản hồi connector'}
+                  </Typography.Text>
                   <pre className="json-block">{pretty(r.response) ?? '(chưa có)'}</pre>
                 </Col>
               </Row>

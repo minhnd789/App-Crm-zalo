@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
   App,
+  AutoComplete,
   Avatar,
   Button,
   Card,
@@ -12,17 +13,20 @@ import {
   Divider,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
+  Radio,
   Row,
   Space,
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { Color } from 'antd/es/color-picker';
-import { CheckCircleFilled, EditOutlined, KeyOutlined, PlusOutlined } from '@ant-design/icons';
+import { ApiOutlined, CheckCircleFilled, EditOutlined, KeyOutlined, PlusOutlined } from '@ant-design/icons';
 import { api } from '../api/client';
 import type { Brand } from '../api/types';
 import { useRequest } from '../hooks/useRequest';
@@ -31,6 +35,22 @@ import { PageHeader } from '../components/PageHeader';
 import { ImageUpload } from '../components/ImageUpload';
 import { BrandDot } from '../components/BrandBadge';
 import { errMsg, num } from '../utils/format';
+
+export const DCORP_PRESETS = [
+  { value: 'https://api-stg.dcorp.com.vn', label: 'Sandbox (UAT) – https://api-stg.dcorp.com.vn' },
+  { value: 'https://api.dcorp.com.vn', label: 'Production – https://api.dcorp.com.vn' },
+];
+
+function validHttpUrl(v: string | undefined) {
+  if (!v?.trim()) return Promise.resolve();
+  try {
+    const u = new URL(v.trim());
+    if (u.protocol === 'http:' || u.protocol === 'https:') return Promise.resolve();
+  } catch {
+    /* không hợp lệ */
+  }
+  return Promise.reject(new Error('URL không hợp lệ (cần http:// hoặc https://)'));
+}
 
 export default function BrandsPage() {
   const { message } = App.useApp();
@@ -131,11 +151,34 @@ export default function BrandsPage() {
               title: 'POS r_keeper',
               render: (_, b) =>
                 b.posEnabled ? (
-                  <Space direction="vertical" size={2}>
-                    <Tag color={b.hasPosApiKey && b.posWebhookUrl ? 'green' : 'gold'}>Đang bật</Tag>
-                    {!b.hasPosApiKey ? <Typography.Text type="warning" style={{ fontSize: 12 }}>Chưa tạo API key</Typography.Text> : null}
-                    {!b.posWebhookUrl ? <Typography.Text type="warning" style={{ fontSize: 12 }}>Chưa có webhook</Typography.Text> : null}
-                  </Space>
+                  (() => {
+                    const warns: string[] = [];
+                    if (b.posProvider === 'DCORP') {
+                      if (!b.dcorpClientId) warns.push('Thiếu Client ID');
+                      if (!b.hasDcorpClientSecret) warns.push('Thiếu Client secret');
+                      if (!b.dcorpOrganization) warns.push('Thiếu Organization');
+                      if (!b.dcorpBaseUrl) warns.push('Thiếu địa chỉ API');
+                    } else if (!b.posWebhookUrl) warns.push('Chưa có webhook');
+                    if (!b.hasPosApiKey) warns.push('Chưa tạo API key nhận bill');
+                    const env = b.dcorpBaseUrl?.includes('-stg') ? 'UAT' : b.dcorpBaseUrl ? 'PROD' : null;
+                    return (
+                      <Space direction="vertical" size={2}>
+                        <Space size={4}>
+                          <Tag color={warns.length ? 'gold' : 'green'} style={{ marginInlineEnd: 0 }}>
+                            Đang bật
+                          </Tag>
+                          <Tag color={b.posProvider === 'DCORP' ? 'blue' : 'default'} style={{ marginInlineEnd: 0 }}>
+                            {b.posProvider === 'DCORP' ? `DCorp${env ? ` · ${env}` : ''}` : 'Webhook'}
+                          </Tag>
+                        </Space>
+                        {warns.map((w) => (
+                          <Typography.Text key={w} type="warning" style={{ fontSize: 12 }}>
+                            {w}
+                          </Typography.Text>
+                        ))}
+                      </Space>
+                    );
+                  })()
                 ) : (
                   <Tag>Tắt</Tag>
                 ),
@@ -199,9 +242,15 @@ interface BrandForm {
   clearAppSecret?: boolean;
   clearOaToken?: boolean;
   posEnabled: boolean;
+  posProvider: 'WEBHOOK' | 'DCORP';
   posWebhookUrl?: string;
   posWebhookSecret?: string;
   clearPosSecret?: boolean;
+  dcorpBaseUrl?: string;
+  dcorpClientId?: string;
+  dcorpClientSecret?: string;
+  clearDcorpSecret?: boolean;
+  dcorpOrganization?: number | null;
   active: boolean;
 }
 
@@ -213,8 +262,8 @@ function SecretField({
   configured,
   form,
 }: {
-  name: 'zaloAppSecretKey' | 'zaloOaAccessToken' | 'posWebhookSecret';
-  clearName: 'clearAppSecret' | 'clearOaToken' | 'clearPosSecret';
+  name: 'zaloAppSecretKey' | 'zaloOaAccessToken' | 'posWebhookSecret' | 'dcorpClientSecret';
+  clearName: 'clearAppSecret' | 'clearOaToken' | 'clearPosSecret' | 'clearDcorpSecret';
   label: string;
   configured: boolean;
   form: ReturnType<typeof Form.useForm<BrandForm>>[0];
@@ -274,6 +323,24 @@ function BrandModal({
   const [rotating, setRotating] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const posEnabled = Form.useWatch('posEnabled', form);
+  const posProvider = Form.useWatch('posProvider', form);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  useEffect(() => setTestResult(null), [brand, open]);
+  // Kiểm tra dùng cấu hình ĐÃ LƯU → chỉ bật khi đã lưu đủ thông tin DCorp
+  const canTestDcorp = !!brand && brand.posProvider === 'DCORP' && !!brand.dcorpClientId && brand.hasDcorpClientSecret && !!brand.dcorpBaseUrl;
+  const testDcorp = async () => {
+    if (!brand) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      setTestResult(await api.post<{ ok: boolean; message: string }>(`/brands/${brand.id}/dcorp-test`));
+    } catch (e) {
+      setTestResult({ ok: false, message: errMsg(e) });
+    } finally {
+      setTesting(false);
+    }
+  };
   useEffect(() => setHasKey(!!brand?.hasPosApiKey), [brand, open]);
 
   const rotateKey = async () => {
@@ -325,10 +392,14 @@ function BrandModal({
             zaloAppId: brand.zaloAppId ?? '',
             zaloOaId: brand.zaloOaId ?? '',
             posEnabled: brand.posEnabled,
+            posProvider: brand.posProvider ?? 'WEBHOOK',
             posWebhookUrl: brand.posWebhookUrl ?? '',
+            dcorpBaseUrl: brand.dcorpBaseUrl ?? '',
+            dcorpClientId: brand.dcorpClientId ?? '',
+            dcorpOrganization: brand.dcorpOrganization,
             active: brand.active,
           }
-        : { primaryColor: '#C2410C', active: true, posEnabled: false },
+        : { primaryColor: '#C2410C', active: true, posEnabled: false, posProvider: 'DCORP', dcorpBaseUrl: DCORP_PRESETS[0].value },
     );
   }, [open, brand, form]);
 
@@ -361,11 +432,17 @@ function BrandModal({
             zaloAppId: opt(v.zaloAppId),
             zaloOaId: opt(v.zaloOaId),
             posEnabled: !!v.posEnabled,
+            posProvider: v.posProvider ?? 'WEBHOOK',
             posWebhookUrl: opt(v.posWebhookUrl),
+            dcorpBaseUrl: opt(v.dcorpBaseUrl)?.replace(/\/+$/, '') ?? null,
+            dcorpClientId: opt(v.dcorpClientId),
+            dcorpOrganization: v.dcorpOrganization ?? null,
             active: v.active,
           };
           const s3 = secret(v.posWebhookSecret, v.clearPosSecret);
           if (s3 !== undefined) body.posWebhookSecret = s3;
+          const s4 = secret(v.dcorpClientSecret, v.clearDcorpSecret);
+          if (s4 !== undefined) body.dcorpClientSecret = s4;
           const s1 = secret(v.zaloAppSecretKey, v.clearAppSecret);
           const s2 = secret(v.zaloOaAccessToken, v.clearOaToken);
           if (s1 !== undefined) body.zaloAppSecretKey = s1;
@@ -473,31 +550,86 @@ function BrandModal({
           Kết nối phần mềm bán hàng (r_keeper)
         </Divider>
         <Typography.Paragraph type="secondary">
-          Khi khách đăng ký thành viên, CRM gửi thông tin khách sang connector của DCorp (webhook). Bill thanh toán / huỷ từ r_keeper
+          Khi khách đăng ký thành viên, CRM gửi thông tin khách sang r_keeper (qua API DCorp RK7 CRM hoặc connector tự viết). Bill thanh toán / huỷ từ r_keeper
           được gửi về CRM để cộng điểm và chi tiêu. Mỗi cơ sở cần khai báo <b>Mã POS</b> tương ứng.
         </Typography.Paragraph>
         <Form.Item name="posEnabled" label="Bật kết nối POS" valuePropName="checked">
           <Switch data-testid="pos-enabled" />
         </Form.Item>
+        <Form.Item name="posProvider" label="Cách gửi khách mới sang POS">
+          <Radio.Group
+            disabled={!posEnabled}
+            options={[
+              { value: 'DCORP', label: 'API DCorp (RK7 CRM)' },
+              { value: 'WEBHOOK', label: 'Connector tự viết (webhook)' },
+            ]}
+            data-testid="pos-provider"
+          />
+        </Form.Item>
+        {posProvider === 'DCORP' ? (
+          <>
+            <Row gutter={16}>
+              <Col xs={24} md={14}>
+                <Form.Item
+                  name="dcorpBaseUrl"
+                  label="Địa chỉ API DCorp"
+                  rules={[{ validator: (_, v: string | undefined) => validHttpUrl(v) }]}
+                  extra="Chọn môi trường hoặc nhập địa chỉ khác"
+                >
+                  <AutoComplete
+                    disabled={!posEnabled}
+                    options={DCORP_PRESETS}
+                    placeholder="https://api-stg.dcorp.com.vn"
+                    data-testid="dcorp-base-url"
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={10}>
+                <Form.Item name="dcorpOrganization" label="Organization" extra="Mã tổ chức DCorp cấp, UAT và PROD khác nhau">
+                  <InputNumber min={1} precision={0} style={{ width: '100%' }} disabled={!posEnabled} data-testid="dcorp-org" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <Form.Item name="dcorpClientId" label="Client ID">
+                  <Input maxLength={200} autoComplete="off" disabled={!posEnabled} data-testid="dcorp-client-id" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <SecretField
+                  form={form}
+                  name="dcorpClientSecret"
+                  clearName="clearDcorpSecret"
+                  label="Client secret"
+                  configured={!!brand?.hasDcorpClientSecret}
+                />
+              </Col>
+            </Row>
+            <Form.Item>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Tooltip title={canTestDcorp ? 'Lấy thử access token bằng thông tin đã lưu' : 'Lưu Client ID, Client secret và địa chỉ API trước, rồi mở lại để kiểm tra'}>
+                  <Button icon={<ApiOutlined />} onClick={testDcorp} loading={testing} disabled={!canTestDcorp} data-testid="dcorp-test">
+                    Kiểm tra kết nối DCorp
+                  </Button>
+                </Tooltip>
+                {testResult ? (
+                  <Alert
+                    type={testResult.ok ? 'success' : 'error'}
+                    showIcon
+                    message={testResult.ok ? 'Kết nối DCorp thành công' : 'Kết nối DCorp thất bại'}
+                    description={testResult.message}
+                    data-testid="dcorp-test-result"
+                  />
+                ) : null}
+              </Space>
+            </Form.Item>
+          </>
+        ) : (
         <Row gutter={16}>
           <Col xs={24} md={12}>
             <Form.Item
               name="posWebhookUrl"
               label="Webhook URL (connector DCorp)"
-              rules={[
-                {
-                  validator: (_, v: string | undefined) => {
-                    if (!v?.trim()) return Promise.resolve();
-                    try {
-                      const u = new URL(v.trim());
-                      if (u.protocol === 'http:' || u.protocol === 'https:') return Promise.resolve();
-                    } catch {
-                      /* không hợp lệ */
-                    }
-                    return Promise.reject(new Error('URL không hợp lệ (cần http:// hoặc https://)'));
-                  },
-                },
-              ]}
+              rules={[{ validator: (_, v: string | undefined) => validHttpUrl(v) }]}
               extra="CRM gửi khách hàng mới / cập nhật tới địa chỉ này"
             >
               <Input placeholder="https://connector.dcorp.vn/crm/webhook" disabled={!posEnabled} maxLength={1000} data-testid="pos-webhook-url" />
@@ -513,7 +645,8 @@ function BrandModal({
             />
           </Col>
         </Row>
-        <Form.Item label="API key POS" extra="Connector dùng key này (header X-Api-Key) để gửi bill về CRM.">
+        )}
+        <Form.Item label="API key POS (nhận bill)" extra="Dùng khi DCorp/r_keeper gửi bill về CRM (header X-Api-Key khi gọi POST /api/pos/bills).">
           <Space wrap>
             {hasKey ? (
               <Tag color="green" icon={<CheckCircleFilled />}>

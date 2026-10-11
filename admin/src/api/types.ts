@@ -18,9 +18,15 @@ export interface Brand {
   hasZaloOaAccessToken: boolean;
   /** Kết nối phần mềm bán hàng r_keeper (qua DCorp) */
   posEnabled: boolean;
+  /** WEBHOOK = connector tự viết; DCORP = API đăng ký thành viên RK7 CRM của DCorp */
+  posProvider: 'WEBHOOK' | 'DCORP';
   posWebhookUrl: string | null;
   hasPosApiKey: boolean;
   hasPosWebhookSecret: boolean;
+  dcorpBaseUrl: string | null;
+  dcorpClientId: string | null;
+  dcorpOrganization: number | null;
+  hasDcorpClientSecret: boolean;
   createdAt?: string;
   _count?: { branches: number; wallets: number };
 }
