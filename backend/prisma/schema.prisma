@@ -1,6 +1,12 @@
-// Prisma schema – CRM nhà hàng trên Zalo Mini App
+// Prisma schema – CRM nhà hàng đa thương hiệu trên Zalo Mini App
 // Dev dùng SQLite. Khi lên production đổi provider thành "postgresql" hoặc "mysql".
 // Các trường trạng thái dùng String (SQLite không hỗ trợ enum), giá trị hợp lệ ghi ở comment.
+//
+// Mô hình đa thương hiệu (phương án C):
+// - Khách hàng (Customer) là 1 người duy nhất trên toàn hệ thống, nhận diện bằng số điện thoại.
+// - Mỗi thương hiệu có Mini App + OA riêng → mỗi khách có 1 CustomerZaloAccount cho mỗi thương hiệu.
+// - Hạng thành viên (Tier) dùng chung, xét theo tổng chi tiêu ở mọi thương hiệu.
+// - Điểm (CustomerWallet), voucher, chương trình ưu đãi, chi nhánh, cài đặt tách riêng theo thương hiệu.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,24 +17,59 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Tài khoản trang quản trị
+// Thương hiệu – mỗi thương hiệu là 1 Mini App + 1 Zalo OA
+model Brand {
+  id                Int      @id @default(autoincrement())
+  code              String   @unique // mã dùng trong Mini App (VITE_BRAND), vd "BRAND_A"
+  name              String
+  logoUrl           String?
+  primaryColor      String   @default("#C2410C")
+  hotline           String?
+  about             String?
+  zaloAppId         String?
+  zaloAppSecretKey  String? // bí mật – không bao giờ trả về API
+  zaloOaId          String?
+  zaloOaAccessToken String? // bí mật – không bao giờ trả về API
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  admins            Admin[]
+  branches          Branch[]
+  zaloAccounts      CustomerZaloAccount[]
+  wallets           CustomerWallet[]
+  pointTransactions PointTransaction[]
+  bookings          Booking[]
+  orders            Order[]
+  promotions        Promotion[]
+  vouchers          Voucher[]
+  customerVouchers  CustomerVoucher[]
+  settings          Setting[]
+}
+
+// Tài khoản trang quản trị.
+// brandId = null → quản trị toàn hệ thống; có brandId → chỉ thao tác trong thương hiệu đó.
 model Admin {
   id           Int      @id @default(autoincrement())
   username     String   @unique
   passwordHash String
   name         String
   role         String   @default("STAFF") // ADMIN | STAFF
+  brandId      Int?
+  brand        Brand?   @relation(fields: [brandId], references: [id])
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  orders           Order[]
+  orders            Order[]
   pointTransactions PointTransaction[]
 }
 
-// Chi nhánh nhà hàng
+// Chi nhánh nhà hàng (thuộc 1 thương hiệu)
 model Branch {
   id        Int      @id @default(autoincrement())
+  brandId   Int
+  brand     Brand    @relation(fields: [brandId], references: [id])
   name      String
   address   String
   phone     String?
@@ -43,13 +84,13 @@ model Branch {
   orders   Order[]
 }
 
-// Hạng thành viên. Khách đạt hạng khi điểm tích luỹ trọn đời >= minPoints
+// Hạng thành viên – dùng chung mọi thương hiệu. Đạt hạng khi tổng chi tiêu >= minSpent
 model Tier {
   id              Int      @id @default(autoincrement())
   name            String
   code            String   @unique
-  minPoints       Int      @default(0)
-  pointMultiplier Float    @default(1) // hệ số nhân điểm khi tích
+  minSpent        Int      @default(0) // tổng chi tiêu (VND) ở mọi thương hiệu
+  pointMultiplier Float    @default(1) // hệ số nhân điểm khi tích (áp dụng ở mọi thương hiệu)
   benefits        String? // mô tả quyền lợi, mỗi dòng 1 quyền lợi
   color           String   @default("#9E9E9E")
   createdAt       DateTime @default(now())
@@ -59,33 +100,66 @@ model Tier {
   vouchers  Voucher[]
 }
 
-// Khách hàng (người dùng Zalo)
+// Khách hàng – 1 người trên toàn hệ thống
 model Customer {
-  id             Int       @id @default(autoincrement())
-  zaloId         String    @unique // ID người dùng theo Mini App (xác thực qua Graph API)
-  zaloOAId       String? // ID người dùng theo OA (idByOA) – dùng để gửi tin nhắn OA
-  followedOA     Boolean   @default(false)
-  name           String
-  avatar         String?
-  phone          String?   @unique
-  birthday       DateTime?
-  gender         String? // MALE | FEMALE | OTHER
-  memberCode     String    @unique // mã thành viên – hiển thị dạng QR cho nhân viên quét
-  points         Int       @default(0) // điểm hiện có (dùng để đổi ưu đãi)
-  lifetimePoints Int       @default(0) // tổng điểm đã tích (dùng để xét hạng)
-  totalSpent     Int       @default(0) // tổng chi tiêu (VND)
-  visitCount     Int       @default(0)
-  tierId         Int?
-  tier           Tier?     @relation(fields: [tierId], references: [id])
-  note           String? // ghi chú nội bộ của nhà hàng
-  lastVisitAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id          Int       @id @default(autoincrement())
+  name        String
+  avatar      String?
+  phone       String?   @unique
+  birthday    DateTime?
+  gender      String? // MALE | FEMALE | OTHER
+  memberCode  String    @unique // mã thành viên – QR dùng được ở mọi thương hiệu
+  totalSpent  Int       @default(0) // tổng chi tiêu mọi thương hiệu (VND) – dùng xét hạng
+  visitCount  Int       @default(0)
+  tierId      Int?
+  tier        Tier?     @relation(fields: [tierId], references: [id])
+  note        String? // ghi chú nội bộ
+  lastVisitAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
+  zaloAccounts      CustomerZaloAccount[]
+  wallets           CustomerWallet[]
   bookings          Booking[]
   orders            Order[]
   vouchers          CustomerVoucher[]
   pointTransactions PointTransaction[]
+}
+
+// Tài khoản Zalo của khách trong Mini App của từng thương hiệu
+// (Zalo cấp user ID khác nhau cho mỗi Mini App)
+model CustomerZaloAccount {
+  id          Int      @id @default(autoincrement())
+  customerId  Int
+  customer    Customer @relation(fields: [customerId], references: [id])
+  brandId     Int
+  brand       Brand    @relation(fields: [brandId], references: [id])
+  zaloId      String // ID người dùng theo Mini App
+  zaloOAId    String? // ID người dùng theo OA (idByOA) – dùng gửi tin nhắn OA
+  followedOA  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  lastLoginAt DateTime @default(now())
+
+  @@unique([brandId, zaloId])
+  @@unique([customerId, brandId])
+}
+
+// Ví điểm của khách tại từng thương hiệu
+model CustomerWallet {
+  id             Int       @id @default(autoincrement())
+  customerId     Int
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  brandId        Int
+  brand          Brand     @relation(fields: [brandId], references: [id])
+  points         Int       @default(0) // điểm hiện có (đổi ưu đãi)
+  lifetimePoints Int       @default(0) // tổng điểm đã tích tại thương hiệu
+  totalSpent     Int       @default(0) // chi tiêu tại thương hiệu
+  visitCount     Int       @default(0)
+  lastVisitAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([customerId, brandId])
 }
 
 // Lịch sử biến động điểm
@@ -93,6 +167,8 @@ model PointTransaction {
   id           Int      @id @default(autoincrement())
   customerId   Int
   customer     Customer @relation(fields: [customerId], references: [id])
+  brandId      Int
+  brand        Brand    @relation(fields: [brandId], references: [id])
   type         String // EARN | REDEEM | ADJUST | REFUND | WELCOME
   points       Int // số dương = cộng, âm = trừ
   balanceAfter Int
@@ -103,13 +179,15 @@ model PointTransaction {
   admin        Admin?   @relation(fields: [adminId], references: [id])
   createdAt    DateTime @default(now())
 
-  @@index([customerId, createdAt])
+  @@index([customerId, brandId, createdAt])
 }
 
 // Đặt bàn
 model Booking {
   id           Int      @id @default(autoincrement())
   code         String   @unique
+  brandId      Int
+  brand        Brand    @relation(fields: [brandId], references: [id])
   customerId   Int
   customer     Customer @relation(fields: [customerId], references: [id])
   branchId     Int
@@ -126,14 +204,16 @@ model Booking {
 
   orders Order[]
 
-  @@index([bookingTime])
+  @@index([brandId, bookingTime])
   @@index([customerId])
 }
 
-// Hoá đơn khách đã ăn tại nhà hàng (nhân viên tạo trên trang quản trị)
+// Hoá đơn khách đã ăn tại nhà hàng
 model Order {
   id              Int       @id @default(autoincrement())
   code            String    @unique
+  brandId         Int
+  brand           Brand     @relation(fields: [brandId], references: [id])
   customerId      Int
   customer        Customer  @relation(fields: [customerId], references: [id])
   branchId        Int?
@@ -147,6 +227,8 @@ model Order {
   pointsEarned    Int       @default(0)
   note            String?
   status          String    @default("COMPLETED") // COMPLETED | CANCELLED
+  source          String    @default("ADMIN") // ADMIN | POS (đồng bộ từ phần mềm bán hàng, vd r_keeper)
+  externalId      String? // mã hoá đơn bên phần mềm bán hàng – chống đồng bộ trùng
   createdById     Int?
   createdBy       Admin?    @relation(fields: [createdById], references: [id])
   createdAt       DateTime  @default(now())
@@ -156,6 +238,8 @@ model Order {
   usedVoucher       CustomerVoucher?
   pointTransactions PointTransaction[]
 
+  @@unique([brandId, externalId])
+  @@index([brandId, createdAt])
   @@index([customerId, createdAt])
 }
 
@@ -168,9 +252,11 @@ model OrderItem {
   price    Int
 }
 
-// Chương trình ưu đãi (bài viết / banner giới thiệu)
+// Chương trình ưu đãi (bài viết / banner giới thiệu) của thương hiệu
 model Promotion {
   id        Int       @id @default(autoincrement())
+  brandId   Int
+  brand     Brand     @relation(fields: [brandId], references: [id])
   title     String
   summary   String?
   content   String? // nội dung chi tiết (text nhiều dòng)
@@ -183,9 +269,11 @@ model Promotion {
   updatedAt DateTime  @updatedAt
 }
 
-// Mẫu voucher. pointCost = 0 → nhận miễn phí; > 0 → đổi bằng điểm
+// Mẫu voucher của thương hiệu. pointCost = 0 → nhận miễn phí; > 0 → đổi bằng điểm của thương hiệu
 model Voucher {
   id               Int       @id @default(autoincrement())
+  brandId          Int
+  brand            Brand     @relation(fields: [brandId], references: [id])
   title            String
   description      String?
   imageUrl         String?
@@ -209,10 +297,12 @@ model Voucher {
   customerVouchers CustomerVoucher[]
 }
 
-// Voucher trong ví của khách
+// Voucher trong ví của khách (chỉ dùng được tại thương hiệu phát hành)
 model CustomerVoucher {
   id          Int       @id @default(autoincrement())
   code        String    @unique
+  brandId     Int
+  brand       Brand     @relation(fields: [brandId], references: [id])
   customerId  Int
   customer    Customer  @relation(fields: [customerId], references: [id])
   voucherId   Int
@@ -226,11 +316,15 @@ model CustomerVoucher {
   order       Order?    @relation(fields: [orderId], references: [id])
   createdAt   DateTime  @default(now())
 
-  @@index([customerId, status])
+  @@index([customerId, brandId, status])
 }
 
-// Cấu hình chung dạng key-value
+// Cấu hình theo thương hiệu dạng key-value
 model Setting {
-  key   String @id
-  value String
+  brandId Int
+  brand   Brand  @relation(fields: [brandId], references: [id])
+  key     String
+  value   String
+
+  @@id([brandId, key])
 }

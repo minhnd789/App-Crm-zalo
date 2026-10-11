@@ -32,12 +32,12 @@ export async function getZaloProfile(accessToken: string): Promise<ZaloProfile> 
 
 /**
  * Đổi token từ zmp-sdk getPhoneNumber thành số điện thoại thật.
- * Cần ZALO_APP_SECRET_KEY và quyền "Số điện thoại" đã được duyệt cho Mini App.
+ * Cần Secret Key của Mini App (cấu hình theo thương hiệu) và quyền "Số điện thoại" đã được duyệt cho Mini App.
  */
-export async function getZaloPhone(accessToken: string, phoneToken: string): Promise<string> {
-  if (!config.zalo.appSecretKey) throw badRequest('Chưa cấu hình ZALO_APP_SECRET_KEY');
+export async function getZaloPhone(accessToken: string, phoneToken: string, appSecretKey: string | null): Promise<string> {
+  if (!appSecretKey) throw badRequest('Thương hiệu chưa cấu hình Secret Key của Mini App');
   const res = await fetch(`${GRAPH}/me/info`, {
-    headers: { access_token: accessToken, code: phoneToken, secret_key: config.zalo.appSecretKey },
+    headers: { access_token: accessToken, code: phoneToken, secret_key: appSecretKey },
   });
   const data = (await res.json()) as { data?: { number?: string }; error?: number; message?: string };
   const number = data.data?.number;
@@ -52,15 +52,20 @@ export async function getZaloPhone(accessToken: string, phoneToken: string): Pro
  * Lưu ý: Zalo chỉ cho gửi tin tư vấn miễn phí khi người dùng có tương tác với OA gần đây;
  * với thông báo giao dịch chính thức nên dùng ZNS.
  */
-export async function sendOAMessage(zaloUserId: string, text: string): Promise<void> {
-  if (!config.zalo.oaAccessToken || config.zalo.mock) {
+export async function sendOAMessage(
+  oaAccessToken: string | null | undefined,
+  zaloUserId: string | null | undefined,
+  text: string,
+): Promise<void> {
+  if (!zaloUserId) return;
+  if (!oaAccessToken || config.zalo.mock) {
     console.info(`[OA] (bỏ qua – chưa cấu hình) → ${zaloUserId}: ${text}`);
     return;
   }
   try {
     const res = await fetch('https://openapi.zalo.me/v3.0/oa/message/cs', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', access_token: config.zalo.oaAccessToken },
+      headers: { 'Content-Type': 'application/json', access_token: oaAccessToken },
       body: JSON.stringify({ recipient: { user_id: zaloUserId }, message: { text } }),
     });
     const data = (await res.json()) as { error?: number; message?: string };

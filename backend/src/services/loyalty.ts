@@ -1,4 +1,4 @@
-import type { Customer, Tier, Voucher } from '@prisma/client';
+import type { Tier, Voucher } from '@prisma/client';
 import { prisma, type Tx } from '../db.js';
 import { badRequest } from '../lib/errors.js';
 import { voucherCode } from '../lib/codes.js';
@@ -7,50 +7,70 @@ export type PointType = 'EARN' | 'REDEEM' | 'ADJUST' | 'REFUND' | 'WELCOME';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** Hạng cao nhất mà khách đạt được với số điểm tích luỹ trọn đời */
-export async function tierFor(tx: Tx, lifetimePoints: number): Promise<Tier | null> {
-  return tx.tier.findFirst({ where: { minPoints: { lte: lifetimePoints } }, orderBy: { minPoints: 'desc' } });
+/** Hạng cao nhất mà khách đạt được với tổng chi tiêu ở mọi thương hiệu */
+export async function tierForSpent(tx: Tx, totalSpent: number): Promise<Tier | null> {
+  return tx.tier.findFirst({ where: { minSpent: { lte: totalSpent } }, orderBy: { minSpent: 'desc' } });
+}
+
+/** Xếp lại hạng theo tổng chi tiêu hiện tại. Trả về hạng mới và có thăng hạng hay không. */
+export async function recomputeTier(tx: Tx, customerId: number) {
+  const c = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, include: { tier: true } });
+  const tier = await tierForSpent(tx, c.totalSpent);
+  if ((tier?.id ?? null) !== c.tierId) {
+    await tx.customer.update({ where: { id: c.id }, data: { tierId: tier?.id ?? null } });
+  }
+  const tierUp = !!tier && (c.tier?.minSpent ?? -1) < tier.minSpent;
+  return { tier, tierUp, previousTier: c.tier };
+}
+
+/** Lấy (hoặc tạo) ví điểm của khách tại thương hiệu */
+export function ensureWallet(tx: Tx, customerId: number, brandId: number) {
+  return tx.customerWallet.upsert({
+    where: { customerId_brandId: { customerId, brandId } },
+    create: { customerId, brandId },
+    update: {},
+  });
 }
 
 /**
- * Cộng/trừ điểm cho khách trong 1 transaction và ghi lịch sử.
- * - `lifetimeDelta`: thay đổi điểm tích luỹ trọn đời (dùng để xét hạng). Mặc định = points nếu points > 0
- *   với các loại EARN/WELCOME, ngược lại 0.
- * - Không cho số dư âm trừ khi `allowNegative`.
+ * Cộng/trừ điểm trong ví của khách tại 1 thương hiệu và ghi lịch sử.
+ * Điểm không ảnh hưởng hạng (hạng xét theo tổng chi tiêu).
+ * Không cho trừ xuống âm trừ khi `allowNegative`.
  */
 export async function changePoints(
   tx: Tx,
   input: {
     customerId: number;
+    brandId: number;
     points: number;
     type: PointType;
     description: string;
     orderId?: number;
     adminId?: number;
-    lifetimeDelta?: number;
     allowNegative?: boolean;
   },
 ) {
-  const customer = await tx.customer.findUniqueOrThrow({ where: { id: input.customerId }, include: { tier: true } });
-  const balance = customer.points + input.points;
+  const wallet = await ensureWallet(tx, input.customerId, input.brandId);
+  const balance = wallet.points + input.points;
   // Chỉ chặn khi đang trừ điểm; cộng điểm vào số dư âm (sau khi huỷ hoá đơn) vẫn được phép
   if (input.points < 0 && balance < 0 && !input.allowNegative) {
-    throw badRequest(`Không đủ điểm (hiện có ${customer.points} điểm)`);
+    throw badRequest(`Không đủ điểm (hiện có ${wallet.points} điểm)`);
   }
-  const lifetimeDelta =
-    input.lifetimeDelta ?? (input.points > 0 && (input.type === 'EARN' || input.type === 'WELCOME') ? input.points : 0);
-  const lifetimePoints = Math.max(0, customer.lifetimePoints + lifetimeDelta);
-  const tier = await tierFor(tx, lifetimePoints);
-
-  const updated = await tx.customer.update({
-    where: { id: customer.id },
-    data: { points: balance, lifetimePoints, tierId: tier?.id ?? null },
-    include: { tier: true },
+  const earned = input.points > 0 && (input.type === 'EARN' || input.type === 'WELCOME' || input.type === 'ADJUST');
+  const reverted = input.type === 'REFUND';
+  const updated = await tx.customerWallet.update({
+    where: { id: wallet.id },
+    data: {
+      points: balance,
+      ...(earned ? { lifetimePoints: { increment: input.points } } : {}),
+      ...(reverted ? { lifetimePoints: { decrement: Math.abs(input.points) } } : {}),
+    },
   });
   if (input.points !== 0) {
     await tx.pointTransaction.create({
       data: {
-        customerId: customer.id,
+        customerId: input.customerId,
+        brandId: input.brandId,
         type: input.type,
         points: input.points,
         balanceAfter: balance,
@@ -60,8 +80,7 @@ export async function changePoints(
       },
     });
   }
-  const tierUp = !!tier && (customer.tier?.minPoints ?? -1) < tier.minPoints;
-  return { customer: updated, tierUp, previousTier: customer.tier };
+  return updated;
 }
 
 /** Số điểm nhận được cho 1 hoá đơn */
@@ -92,12 +111,11 @@ export async function expireVouchers(customerId?: number) {
 
 export type VoucherWithTier = Voucher & { minTier: Tier | null };
 
-/**
- * Kiểm tra khách có thể nhận/đổi voucher không. Trả về lý do nếu không được, null nếu hợp lệ.
- */
+/** Lý do khách không thể nhận/đổi voucher, hoặc null nếu hợp lệ */
 export function voucherIneligibility(
   v: VoucherWithTier,
-  customer: Pick<Customer, 'points'> & { tier: Tier | null },
+  customer: { tier: Tier | null },
+  walletPoints: number,
   ownedCount: number,
   now = new Date(),
 ): string | null {
@@ -106,28 +124,30 @@ export function voucherIneligibility(
   if (v.endDate && v.endDate < now) return 'Ưu đãi đã kết thúc';
   if (v.totalQuantity !== null && v.issuedCount >= v.totalQuantity) return 'Ưu đãi đã hết lượt';
   if (ownedCount >= v.perCustomerLimit) return 'Bạn đã nhận tối đa ưu đãi này';
-  if (v.minTier && (customer.tier?.minPoints ?? -1) < v.minTier.minPoints) return `Dành cho hạng ${v.minTier.name} trở lên`;
-  if (v.pointCost > customer.points) return `Cần ${v.pointCost} điểm`;
+  if (v.minTier && (customer.tier?.minSpent ?? -1) < v.minTier.minSpent) return `Dành cho hạng ${v.minTier.name} trở lên`;
+  if (v.pointCost > walletPoints) return `Cần ${v.pointCost} điểm`;
   return null;
 }
 
 /**
  * Phát voucher cho khách: CLAIM (nhận miễn phí), REDEEM (đổi điểm), GIFT (nhà hàng tặng – bỏ qua điều kiện điểm/hạng).
+ * Voucher phải thuộc `brandId`; điểm trừ từ ví của thương hiệu đó.
  */
 export async function issueVoucher(
   tx: Tx,
-  input: { customerId: number; voucherId: number; source: 'CLAIM' | 'REDEEM' | 'GIFT'; adminId?: number },
+  input: { customerId: number; brandId: number; voucherId: number; source: 'CLAIM' | 'REDEEM' | 'GIFT'; adminId?: number },
 ) {
   const now = new Date();
   const v = await tx.voucher.findUnique({ where: { id: input.voucherId }, include: { minTier: true } });
-  if (!v) throw badRequest('Ưu đãi không tồn tại');
+  if (!v || v.brandId !== input.brandId) throw badRequest('Ưu đãi không tồn tại');
   const customer = await tx.customer.findUniqueOrThrow({ where: { id: input.customerId }, include: { tier: true } });
+  const wallet = await ensureWallet(tx, customer.id, input.brandId);
 
   if (input.source === 'GIFT') {
     if (v.totalQuantity !== null && v.issuedCount >= v.totalQuantity) throw badRequest('Ưu đãi đã hết lượt');
   } else {
     const ownedCount = await tx.customerVoucher.count({ where: { customerId: customer.id, voucherId: v.id } });
-    const reason = voucherIneligibility(v, customer, ownedCount, now);
+    const reason = voucherIneligibility(v, customer, wallet.points, ownedCount, now);
     if (reason) throw badRequest(reason);
     if (input.source === 'CLAIM' && v.pointCost > 0) throw badRequest('Ưu đãi này cần đổi bằng điểm');
     if (input.source === 'REDEEM' && v.pointCost <= 0) throw badRequest('Ưu đãi này nhận miễn phí');
@@ -147,6 +167,7 @@ export async function issueVoucher(
   if (pointsSpent > 0) {
     await changePoints(tx, {
       customerId: customer.id,
+      brandId: input.brandId,
       points: -pointsSpent,
       type: 'REDEEM',
       description: `Đổi ưu đãi: ${v.title}`,
@@ -156,6 +177,7 @@ export async function issueVoucher(
   return tx.customerVoucher.create({
     data: {
       code: voucherCode(),
+      brandId: input.brandId,
       customerId: customer.id,
       voucherId: v.id,
       source: input.source,
@@ -166,15 +188,15 @@ export async function issueVoucher(
   });
 }
 
-/** Thông tin hạng hiện tại / hạng kế tiếp để hiển thị tiến trình */
-export async function membershipInfo(customer: Pick<Customer, 'lifetimePoints'> & { tier: Tier | null }) {
+/** Hạng hiện tại / hạng kế tiếp (theo tổng chi tiêu) để hiển thị tiến trình */
+export async function membershipInfo(customer: { totalSpent: number; tier: Tier | null }) {
   const nextTier = await prisma.tier.findFirst({
-    where: { minPoints: { gt: customer.lifetimePoints } },
-    orderBy: { minPoints: 'asc' },
+    where: { minSpent: { gt: customer.totalSpent } },
+    orderBy: { minSpent: 'asc' },
   });
   return {
     tier: customer.tier,
     nextTier,
-    pointsToNextTier: nextTier ? nextTier.minPoints - customer.lifetimePoints : 0,
+    amountToNextTier: nextTier ? nextTier.minSpent - customer.totalSpent : 0,
   };
 }

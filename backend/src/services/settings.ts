@@ -1,13 +1,11 @@
+import type { Brand } from '@prisma/client';
 import { prisma } from '../db.js';
 
-/** Cấu hình mặc định – có thể chỉnh trên trang quản trị */
+/** Cấu hình mặc định của mỗi thương hiệu – chỉnh trên trang quản trị */
 export const DEFAULT_SETTINGS = {
-  restaurantName: 'Nhà hàng của bạn',
-  hotline: '',
-  about: '',
   /** Số tiền (VND) tương ứng 1 điểm trước khi nhân hệ số hạng */
   pointPerAmount: '10000',
-  /** Điểm tặng khi khách đăng ký thành viên lần đầu */
+  /** Điểm tặng khi khách đăng nhập Mini App của thương hiệu lần đầu */
   welcomePoints: '0',
   /** Phải đặt bàn trước ít nhất bao nhiêu phút */
   bookingMinAdvanceMinutes: '30',
@@ -19,16 +17,8 @@ export const DEFAULT_SETTINGS = {
 export type SettingKey = keyof typeof DEFAULT_SETTINGS;
 export type Settings = Record<SettingKey, string>;
 
-export const NUMERIC_SETTINGS: SettingKey[] = [
-  'pointPerAmount',
-  'welcomePoints',
-  'bookingMinAdvanceMinutes',
-  'bookingMaxDays',
-  'maxPartySize',
-];
-
-export async function getSettings(): Promise<Settings> {
-  const rows = await prisma.setting.findMany();
+export async function getSettings(brandId: number): Promise<Settings> {
+  const rows = await prisma.setting.findMany({ where: { brandId } });
   const result: Settings = { ...DEFAULT_SETTINGS };
   for (const r of rows) {
     if (r.key in DEFAULT_SETTINGS) result[r.key as SettingKey] = r.value;
@@ -36,19 +26,26 @@ export async function getSettings(): Promise<Settings> {
   return result;
 }
 
-export async function getNumberSetting(key: SettingKey): Promise<number> {
-  const row = await prisma.setting.findUnique({ where: { key } });
+export async function getNumberSetting(brandId: number, key: SettingKey): Promise<number> {
+  const row = await prisma.setting.findUnique({ where: { brandId_key: { brandId, key } } });
   const n = Number(row?.value ?? DEFAULT_SETTINGS[key]);
   return Number.isFinite(n) ? n : Number(DEFAULT_SETTINGS[key]);
 }
 
-/** Cấu hình được phép trả về cho Mini App */
-export async function getPublicSettings() {
-  const s = await getSettings();
+/** Cấu hình trả về cho Mini App */
+export async function getPublicConfig(brand: Brand) {
+  const s = await getSettings(brand.id);
   return {
-    restaurantName: s.restaurantName,
-    hotline: s.hotline,
-    about: s.about,
+    brand: {
+      id: brand.id,
+      code: brand.code,
+      name: brand.name,
+      logoUrl: brand.logoUrl,
+      primaryColor: brand.primaryColor,
+      hotline: brand.hotline,
+      about: brand.about,
+      zaloOaId: brand.zaloOaId,
+    },
     pointPerAmount: Number(s.pointPerAmount),
     bookingMinAdvanceMinutes: Number(s.bookingMinAdvanceMinutes),
     bookingMaxDays: Number(s.bookingMaxDays),

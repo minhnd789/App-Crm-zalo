@@ -28,9 +28,9 @@ function vnMinutesOfDay(d: Date) {
 /** Kiểm tra thời gian đặt bàn hợp lệ theo cấu hình & giờ mở cửa chi nhánh */
 export async function validateBookingTime(time: Date, partySize: number, branch: Branch) {
   const now = Date.now();
-  const minAdvance = await getNumberSetting('bookingMinAdvanceMinutes');
-  const maxDays = await getNumberSetting('bookingMaxDays');
-  const maxParty = await getNumberSetting('maxPartySize');
+  const minAdvance = await getNumberSetting(branch.brandId, 'bookingMinAdvanceMinutes');
+  const maxDays = await getNumberSetting(branch.brandId, 'bookingMaxDays');
+  const maxParty = await getNumberSetting(branch.brandId, 'maxPartySize');
 
   if (time.getTime() < now + minAdvance * 60_000) {
     throw badRequest(`Vui lòng đặt bàn trước ít nhất ${minAdvance} phút`);

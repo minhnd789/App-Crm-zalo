@@ -18,6 +18,7 @@ bookingsRouter.get('/', async (req, res) => {
   const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : undefined;
   const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : undefined;
   const where: Prisma.BookingWhereInput = {
+    brandId: req.brand!.id,
     ...(status ? { status } : {}),
     ...(branchId ? { branchId } : {}),
     ...(from || to ? { bookingTime: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } } : {}),
@@ -37,8 +38,8 @@ bookingsRouter.get('/', async (req, res) => {
 });
 
 bookingsRouter.get('/:id', async (req, res) => {
-  const b = await prisma.booking.findUnique({
-    where: { id: idParam(req.params.id) },
+  const b = await prisma.booking.findFirst({
+    where: { id: idParam(req.params.id), brandId: req.brand!.id },
     include: { branch: true, customer: { include: { tier: true } }, orders: true },
   });
   if (!b) throw notFound('Lịch đặt bàn không tồn tại');
@@ -62,7 +63,8 @@ bookingsRouter.patch('/:id', async (req, res) => {
       notify: z.boolean().default(true),
     })
     .parse(req.body);
-  const b = await prisma.booking.findUnique({ where: { id: idParam(req.params.id) } });
+  const brand = req.brand!;
+  const b = await prisma.booking.findFirst({ where: { id: idParam(req.params.id), brandId: brand.id } });
   if (!b) throw notFound('Lịch đặt bàn không tồn tại');
   if (body.status && body.status !== b.status && !TRANSITIONS[b.status]?.includes(body.status)) {
     throw badRequest(
@@ -72,17 +74,20 @@ bookingsRouter.patch('/:id', async (req, res) => {
   const updated = await prisma.booking.update({
     where: { id: b.id },
     data: { status: body.status, adminNote: body.adminNote },
-    include: { branch: true, customer: { select: { id: true, name: true, phone: true, zaloOAId: true } } },
+    include: { branch: true, customer: { select: { id: true, name: true, phone: true } } },
   });
 
-  if (body.notify && body.status && body.status !== b.status && updated.customer.zaloOAId) {
+  const account = await prisma.customerZaloAccount.findUnique({
+    where: { customerId_brandId: { customerId: b.customerId, brandId: brand.id } },
+  });
+  if (body.notify && body.status && body.status !== b.status && account?.zaloOAId) {
     const time = updated.bookingTime.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short', timeStyle: 'short' });
     const msgs: Partial<Record<string, string>> = {
-      CONFIRMED: `Nhà hàng đã xác nhận lịch đặt bàn ${updated.code} lúc ${time} cho ${updated.partySize} khách tại ${updated.branch.name}. Hẹn gặp bạn!`,
+      CONFIRMED: `${brand.name} đã xác nhận lịch đặt bàn ${updated.code} lúc ${time} cho ${updated.partySize} khách tại ${updated.branch.name}. Hẹn gặp bạn!`,
       CANCELLED: `Rất tiếc, lịch đặt bàn ${updated.code} lúc ${time} đã bị huỷ.${body.adminNote ? ` Lý do: ${body.adminNote}` : ''}`,
     };
     const msg = msgs[body.status];
-    if (msg) void sendOAMessage(updated.customer.zaloOAId, msg);
+    if (msg) void sendOAMessage(brand.zaloOaAccessToken, account.zaloOAId, msg);
   }
   res.json(updated);
 });

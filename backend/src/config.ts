@@ -11,9 +11,7 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
   zalo: {
-    appId: process.env.ZALO_APP_ID ?? '',
-    appSecretKey: process.env.ZALO_APP_SECRET_KEY ?? '',
-    oaAccessToken: process.env.ZALO_OA_ACCESS_TOKEN ?? '',
+    // App ID, Secret Key, OA token cấu hình theo từng thương hiệu trên trang quản trị
     mock: bool(process.env.ZALO_MOCK, false),
   },
   uploadDir: process.env.UPLOAD_DIR ?? 'uploads',

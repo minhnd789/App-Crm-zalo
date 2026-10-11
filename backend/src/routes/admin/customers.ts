@@ -7,75 +7,112 @@ import { idParam, optionalDate, paging, phoneSchema } from '../../lib/http.js';
 import { changePoints, expireVouchers, issueVoucher, membershipInfo } from '../../services/loyalty.js';
 import { requireManager } from '../../lib/auth.js';
 
+/**
+ * Khách hàng dùng chung mọi thương hiệu. Khi có thương hiệu đang chọn (X-Brand-Id),
+ * kèm theo ví điểm (`wallet`) của khách tại thương hiệu đó.
+ */
 export const customersRouter = Router();
+
+const requireBrand = (brandId: number | undefined) => {
+  if (!brandId) throw badRequest('Vui lòng chọn thương hiệu');
+  return brandId;
+};
 
 customersRouter.get('/', async (req, res) => {
   const { page, pageSize, skip, take } = paging(req.query);
+  const brandId = req.brand?.id;
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const tierId = req.query.tierId ? Number(req.query.tierId) : undefined;
   const sort = typeof req.query.sort === 'string' ? req.query.sort : 'createdAt';
+  // onlyBrand=true: chỉ khách đã dùng Mini App hoặc có giao dịch tại thương hiệu đang chọn
+  const onlyBrand = req.query.onlyBrand === 'true' && brandId;
   const where: Prisma.CustomerWhereInput = {
     ...(q ? { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { memberCode: { contains: q } }] } : {}),
     ...(tierId ? { tierId } : {}),
+    ...(onlyBrand ? { wallets: { some: { brandId } } } : {}),
   };
   const orderBy: Prisma.CustomerOrderByWithRelationInput =
-    sort === 'points'
-      ? { points: 'desc' }
-      : sort === 'totalSpent'
-        ? { totalSpent: 'desc' }
-        : sort === 'lastVisitAt'
-          ? { lastVisitAt: { sort: 'desc', nulls: 'last' } }
-          : { createdAt: 'desc' };
-  const [items, total] = await Promise.all([
-    prisma.customer.findMany({ where, include: { tier: true }, orderBy, skip, take }),
+    sort === 'totalSpent'
+      ? { totalSpent: 'desc' }
+      : sort === 'lastVisitAt'
+        ? { lastVisitAt: { sort: 'desc', nulls: 'last' } }
+        : { createdAt: 'desc' };
+  const [rows, total] = await Promise.all([
+    prisma.customer.findMany({
+      where,
+      include: {
+        tier: true,
+        wallets: brandId ? { where: { brandId } } : false,
+        zaloAccounts: { select: { brandId: true } },
+      },
+      orderBy,
+      skip,
+      take,
+    }),
     prisma.customer.count({ where }),
   ]);
+  const items = rows.map(({ wallets, zaloAccounts, ...c }) => ({
+    ...c,
+    wallet: wallets?.[0] ?? null,
+    brandIds: zaloAccounts.map((a) => a.brandId),
+  }));
   res.json({ items, total, page, pageSize });
 });
 
-/** Tìm nhanh khách theo SĐT hoặc mã thành viên (quét QR) – dùng khi tạo hoá đơn */
+/** Tìm nhanh khách theo SĐT hoặc mã thành viên (quét QR) – dùng khi tạo hoá đơn tại thương hiệu đang chọn */
 customersRouter.get('/lookup', async (req, res) => {
+  const brandId = requireBrand(req.brand?.id);
   const q = String(req.query.q ?? '').trim();
   if (!q) throw badRequest('Nhập số điện thoại hoặc mã thành viên');
   const normalizedPhone = q.replace(/[\s.-]/g, '').replace(/^\+?84/, '0');
   const c = await prisma.customer.findFirst({
     where: { OR: [{ memberCode: q }, { phone: normalizedPhone }] },
-    include: { tier: true },
+    include: { tier: true, wallets: { where: { brandId } } },
   });
   if (!c) throw notFound('Không tìm thấy khách hàng');
   await expireVouchers(c.id);
-  const vouchers = await prisma.customerVoucher.findMany({
-    where: { customerId: c.id, status: 'AVAILABLE' },
-    include: { voucher: true },
-    orderBy: { expiresAt: 'asc' },
-  });
-  const bookings = await prisma.booking.findMany({
-    where: { customerId: c.id, status: { in: ['PENDING', 'CONFIRMED', 'ARRIVED'] } },
-    include: { branch: true },
-    orderBy: { bookingTime: 'asc' },
-  });
-  res.json({ ...c, vouchers, bookings });
+  const [vouchers, bookings] = await Promise.all([
+    prisma.customerVoucher.findMany({
+      where: { customerId: c.id, brandId, status: 'AVAILABLE' },
+      include: { voucher: true },
+      orderBy: { expiresAt: 'asc' },
+    }),
+    prisma.booking.findMany({
+      where: { customerId: c.id, brandId, status: { in: ['PENDING', 'CONFIRMED', 'ARRIVED'] } },
+      include: { branch: true },
+      orderBy: { bookingTime: 'asc' },
+    }),
+  ]);
+  const { wallets, ...rest } = c;
+  res.json({ ...rest, wallet: wallets[0] ?? null, vouchers, bookings });
 });
 
+/** Chi tiết khách. Đơn, đặt bàn, voucher, lịch sử điểm lọc theo thương hiệu đang chọn (nếu có). */
 customersRouter.get('/:id', async (req, res) => {
   const id = idParam(req.params.id);
+  const brandId = req.brand?.id;
+  const byBrand = brandId ? { brandId } : {};
+  const brandSel = { select: { id: true, name: true, code: true } };
   await expireVouchers(id);
   const c = await prisma.customer.findUnique({
     where: { id },
     include: {
       tier: true,
-      orders: { orderBy: { createdAt: 'desc' }, take: 50, include: { branch: true } },
-      bookings: { orderBy: { bookingTime: 'desc' }, take: 50, include: { branch: true } },
-      vouchers: { orderBy: { createdAt: 'desc' }, include: { voucher: true } },
+      wallets: { include: { brand: brandSel } },
+      zaloAccounts: { include: { brand: brandSel } },
+      orders: { where: byBrand, orderBy: { createdAt: 'desc' }, take: 50, include: { branch: true, brand: brandSel } },
+      bookings: { where: byBrand, orderBy: { bookingTime: 'desc' }, take: 50, include: { branch: true, brand: brandSel } },
+      vouchers: { where: byBrand, orderBy: { createdAt: 'desc' }, include: { voucher: true, brand: brandSel } },
       pointTransactions: {
+        where: byBrand,
         orderBy: { createdAt: 'desc' },
         take: 100,
-        include: { admin: { select: { id: true, name: true } } },
+        include: { admin: { select: { id: true, name: true } }, brand: brandSel },
       },
     },
   });
   if (!c) throw notFound('Khách hàng không tồn tại');
-  res.json({ ...c, ...(await membershipInfo(c)) });
+  res.json({ ...c, wallet: brandId ? (c.wallets.find((w) => w.brandId === brandId) ?? null) : null, ...(await membershipInfo(c)) });
 });
 
 const updateSchema = z.object({
@@ -91,34 +128,34 @@ customersRouter.put('/:id', async (req, res) => {
   res.json(await prisma.customer.update({ where: { id: idParam(req.params.id) }, data, include: { tier: true } }));
 });
 
-/** Cộng/trừ điểm thủ công (chỉ quản lý) */
+/** Cộng/trừ điểm thủ công vào ví của thương hiệu đang chọn (chỉ quản lý) */
 customersRouter.post('/:id/points', requireManager, async (req, res) => {
+  const brandId = requireBrand(req.brand?.id);
   const body = z
     .object({
       points: z.number().int().refine((n) => n !== 0, 'Số điểm phải khác 0'),
       description: z.string().trim().min(1, 'Vui lòng nhập lý do'),
-      /** true = cũng tính vào điểm xét hạng */
-      affectTier: z.boolean().default(false),
     })
     .parse(req.body);
-  const result = await prisma.$transaction((tx) =>
+  const wallet = await prisma.$transaction((tx) =>
     changePoints(tx, {
       customerId: idParam(req.params.id),
+      brandId,
       points: body.points,
       type: 'ADJUST',
       description: body.description,
       adminId: req.admin!.id,
-      lifetimeDelta: body.affectTier ? body.points : 0,
     }),
   );
-  res.json(result);
+  res.json({ wallet });
 });
 
-/** Tặng voucher cho khách (bỏ qua điều kiện điểm/hạng) */
+/** Tặng voucher của thương hiệu đang chọn (bỏ qua điều kiện điểm/hạng) */
 customersRouter.post('/:id/vouchers', async (req, res) => {
+  const brandId = requireBrand(req.brand?.id);
   const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(req.body);
   const cv = await prisma.$transaction((tx) =>
-    issueVoucher(tx, { customerId: idParam(req.params.id), voucherId, source: 'GIFT', adminId: req.admin!.id }),
+    issueVoucher(tx, { customerId: idParam(req.params.id), brandId, voucherId, source: 'GIFT', adminId: req.admin!.id }),
   );
   res.status(201).json(cv);
 });

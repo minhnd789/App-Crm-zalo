@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../../db.js';
-import { requireAdmin, signAdminToken } from '../../lib/auth.js';
+import { publicBrand, requireAdmin, signAdminToken } from '../../lib/auth.js';
 import { badRequest, unauthorized } from '../../lib/errors.js';
 
 export const authRouter = Router();
@@ -15,12 +15,17 @@ authRouter.post('/login', async (req, res) => {
   }
   res.json({
     token: signAdminToken(admin.id),
-    admin: { id: admin.id, username: admin.username, name: admin.name, role: admin.role },
+    admin: { id: admin.id, username: admin.username, name: admin.name, role: admin.role, brandId: admin.brandId },
   });
 });
 
-authRouter.get('/me', requireAdmin, (req, res) => {
-  res.json(req.admin);
+/** Admin hiện tại + danh sách thương hiệu được phép thao tác */
+authRouter.get('/me', requireAdmin, async (req, res) => {
+  const brands = await prisma.brand.findMany({
+    where: req.admin!.brandId ? { id: req.admin!.brandId } : {},
+    orderBy: { id: 'asc' },
+  });
+  res.json({ ...req.admin, brands: brands.map(publicBrand) });
 });
 
 authRouter.post('/change-password', requireAdmin, async (req, res) => {

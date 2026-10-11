@@ -18,6 +18,7 @@ ordersRouter.get('/', async (req, res) => {
   const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : undefined;
   const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : undefined;
   const where: Prisma.OrderWhereInput = {
+    brandId: req.brand!.id,
     ...(customerId ? { customerId } : {}),
     ...(branchId ? { branchId } : {}),
     ...(status ? { status } : {}),
@@ -42,7 +43,7 @@ ordersRouter.get('/', async (req, res) => {
 
 ordersRouter.get('/:id', async (req, res) => {
   const o = await prisma.order.findUnique({ where: { id: idParam(req.params.id) }, include: orderInclude });
-  if (!o) throw notFound('Hoá đơn không tồn tại');
+  if (!o || o.brandId !== req.brand!.id) throw notFound('Hoá đơn không tồn tại');
   res.json(o);
 });
 
@@ -68,9 +69,9 @@ const createSchema = z
 
 ordersRouter.post('/', async (req, res) => {
   const body = createSchema.parse(req.body);
-  res.status(201).json(await createOrder(body, req.admin!.id));
+  res.status(201).json(await createOrder(req.brand!, body, req.admin!.id));
 });
 
 ordersRouter.post('/:id/cancel', requireManager, async (req, res) => {
-  res.json(await cancelOrder(idParam(req.params.id), req.admin!.id));
+  res.json(await cancelOrder(req.brand!.id, idParam(req.params.id), req.admin!.id));
 });

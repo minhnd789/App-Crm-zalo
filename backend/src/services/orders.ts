@@ -1,8 +1,9 @@
+import type { Brand } from '@prisma/client';
 import { prisma } from '../db.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { orderCode } from '../lib/codes.js';
 import { sendOAMessage } from '../lib/zalo.js';
-import { changePoints, pointsForAmount, voucherDiscountAmount } from './loyalty.js';
+import { changePoints, ensureWallet, pointsForAmount, recomputeTier, voucherDiscountAmount } from './loyalty.js';
 import { getNumberSetting } from './settings.js';
 
 export interface CreateOrderInput {
@@ -14,6 +15,9 @@ export interface CreateOrderInput {
   discount?: number;
   voucherCode?: string | null;
   note?: string | null;
+  /** Đồng bộ từ phần mềm bán hàng (POS) – dùng sau này cho r_keeper */
+  source?: 'ADMIN' | 'POS';
+  externalId?: string | null;
 }
 
 const vnd = (n: number) => n.toLocaleString('vi-VN') + 'đ';
@@ -21,18 +25,24 @@ const vnd = (n: number) => n.toLocaleString('vi-VN') + 'đ';
 export const orderInclude = {
   items: true,
   branch: true,
+  brand: { select: { id: true, name: true, code: true } },
   usedVoucher: { include: { voucher: true } },
   customer: { include: { tier: true } },
   createdBy: { select: { id: true, name: true } },
 } as const;
 
-/** Tạo hoá đơn (khách đã ăn xong), áp voucher, cộng điểm và xét thăng hạng */
-export async function createOrder(input: CreateOrderInput, adminId: number) {
-  const pointPerAmount = await getNumberSetting('pointPerAmount');
+/** Tạo hoá đơn tại 1 thương hiệu: áp voucher, cộng điểm vào ví thương hiệu, cộng tổng chi tiêu và xét hạng chung */
+export async function createOrder(brand: Brand, input: CreateOrderInput, adminId: number | null) {
+  const pointPerAmount = await getNumberSetting(brand.id, 'pointPerAmount');
 
   const result = await prisma.$transaction(async (tx) => {
     const customer = await tx.customer.findUnique({ where: { id: input.customerId }, include: { tier: true } });
     if (!customer) throw notFound('Khách hàng không tồn tại');
+
+    if (input.branchId) {
+      const branch = await tx.branch.findUnique({ where: { id: input.branchId } });
+      if (!branch || branch.brandId !== brand.id) throw badRequest('Chi nhánh không thuộc thương hiệu này');
+    }
 
     const itemsTotal = input.items.reduce((s, i) => s + i.quantity * i.price, 0);
     const subtotal = input.items.length > 0 ? itemsTotal : (input.subtotal ?? 0);
@@ -40,7 +50,7 @@ export async function createOrder(input: CreateOrderInput, adminId: number) {
     const discount = Math.min(input.discount ?? 0, subtotal);
     const base = subtotal - discount;
 
-    // Voucher
+    // Voucher – chỉ dùng được tại thương hiệu phát hành
     let customerVoucherId: number | null = null;
     let voucherDiscount = 0;
     if (input.voucherCode) {
@@ -49,6 +59,7 @@ export async function createOrder(input: CreateOrderInput, adminId: number) {
         include: { voucher: true },
       });
       if (!cv || cv.customerId !== customer.id) throw badRequest('Mã voucher không thuộc về khách hàng này');
+      if (cv.brandId !== brand.id) throw badRequest('Voucher không áp dụng cho thương hiệu này');
       if (cv.status !== 'AVAILABLE') throw badRequest('Voucher đã được sử dụng hoặc hết hạn');
       if (cv.expiresAt < new Date()) throw badRequest('Voucher đã hết hạn');
       if (base < cv.voucher.minOrder) throw badRequest(`Voucher áp dụng cho hoá đơn từ ${vnd(cv.voucher.minOrder)}`);
@@ -57,20 +68,23 @@ export async function createOrder(input: CreateOrderInput, adminId: number) {
     }
     const total = base - voucherDiscount;
 
-    // Booking
     if (input.bookingId) {
       const booking = await tx.booking.findUnique({ where: { id: input.bookingId } });
-      if (!booking || booking.customerId !== customer.id) throw badRequest('Lịch đặt bàn không thuộc về khách hàng này');
+      if (!booking || booking.customerId !== customer.id || booking.brandId !== brand.id) {
+        throw badRequest('Lịch đặt bàn không thuộc về khách hàng này');
+      }
       if (!['PENDING', 'CONFIRMED', 'ARRIVED'].includes(booking.status)) {
         throw badRequest('Lịch đặt bàn đã kết thúc hoặc bị huỷ, không thể gắn vào hoá đơn');
       }
       await tx.booking.update({ where: { id: booking.id }, data: { status: 'COMPLETED' } });
     }
 
+    // Điểm tính theo hạng hiện tại (trước khi cộng chi tiêu của hoá đơn này)
     const pointsEarned = pointsForAmount(total, pointPerAmount, customer.tier?.pointMultiplier ?? 1);
     const order = await tx.order.create({
       data: {
         code: orderCode(),
+        brandId: brand.id,
         customerId: customer.id,
         branchId: input.branchId ?? null,
         bookingId: input.bookingId ?? null,
@@ -80,6 +94,8 @@ export async function createOrder(input: CreateOrderInput, adminId: number) {
         total,
         pointsEarned,
         note: input.note ?? null,
+        source: input.source ?? 'ADMIN',
+        externalId: input.externalId ?? null,
         createdById: adminId,
         items: { create: input.items },
       },
@@ -94,40 +110,50 @@ export async function createOrder(input: CreateOrderInput, adminId: number) {
       if (used.count === 0) throw badRequest('Voucher đã được sử dụng');
     }
 
+    const now = new Date();
     await tx.customer.update({
       where: { id: customer.id },
-      data: { totalSpent: { increment: total }, visitCount: { increment: 1 }, lastVisitAt: new Date() },
+      data: { totalSpent: { increment: total }, visitCount: { increment: 1 }, lastVisitAt: now },
+    });
+    const wallet = await ensureWallet(tx, customer.id, brand.id);
+    await tx.customerWallet.update({
+      where: { id: wallet.id },
+      data: { totalSpent: { increment: total }, visitCount: { increment: 1 }, lastVisitAt: now },
     });
 
-    const points = await changePoints(tx, {
+    const updatedWallet = await changePoints(tx, {
       customerId: customer.id,
+      brandId: brand.id,
       points: pointsEarned,
       type: 'EARN',
       description: `Tích điểm hoá đơn ${order.code}`,
       orderId: order.id,
-      adminId,
+      adminId: adminId ?? undefined,
     });
+    const tierResult = await recomputeTier(tx, customer.id);
 
-    return { orderId: order.id, pointsEarned, total, tierUp: points.tierUp, customer: points.customer };
+    return { orderId: order.id, pointsEarned, total, balance: updatedWallet.points, ...tierResult };
   });
 
   const order = await prisma.order.findUniqueOrThrow({ where: { id: result.orderId }, include: orderInclude });
 
-  const target = result.customer.zaloOAId;
-  if (target) {
-    let msg = `Cảm ơn bạn đã dùng bữa! Hoá đơn ${order.code}: ${vnd(result.total)}. Bạn được cộng ${result.pointsEarned} điểm, tổng điểm hiện có: ${result.customer.points}.`;
-    if (result.tierUp && result.customer.tier) msg += ` Chúc mừng bạn đã lên hạng ${result.customer.tier.name}!`;
-    void sendOAMessage(target, msg);
+  const account = await prisma.customerZaloAccount.findUnique({
+    where: { customerId_brandId: { customerId: order.customerId, brandId: brand.id } },
+  });
+  if (account?.zaloOAId) {
+    let msg = `Cảm ơn bạn đã dùng bữa tại ${brand.name}! Hoá đơn ${order.code}: ${vnd(result.total)}. Bạn được cộng ${result.pointsEarned} điểm, điểm hiện có: ${result.balance}.`;
+    if (result.tierUp && result.tier) msg += ` Chúc mừng bạn đã lên hạng ${result.tier.name}!`;
+    void sendOAMessage(brand.zaloOaAccessToken, account.zaloOAId, msg);
   }
 
-  return { order, tierUp: result.tierUp };
+  return { order, tierUp: result.tierUp, tier: result.tier };
 }
 
-/** Huỷ hoá đơn: trừ lại điểm đã cộng, trả lại voucher, giảm tổng chi tiêu */
-export async function cancelOrder(orderId: number, adminId: number) {
+/** Huỷ hoá đơn: trừ lại điểm đã cộng, trả lại voucher, giảm tổng chi tiêu và xét lại hạng */
+export async function cancelOrder(brandId: number, orderId: number, adminId: number) {
   await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({ where: { id: orderId }, include: { usedVoucher: true } });
-    if (!order) throw notFound('Hoá đơn không tồn tại');
+    if (!order || order.brandId !== brandId) throw notFound('Hoá đơn không tồn tại');
     if (order.status === 'CANCELLED') throw badRequest('Hoá đơn đã bị huỷ trước đó');
 
     await tx.order.update({ where: { id: order.id }, data: { status: 'CANCELLED', cancelledAt: new Date() } });
@@ -152,12 +178,16 @@ export async function cancelOrder(orderId: number, adminId: number) {
       where: { id: order.customerId },
       data: { totalSpent: { decrement: order.total }, visitCount: { decrement: 1 } },
     });
+    await tx.customerWallet.update({
+      where: { customerId_brandId: { customerId: order.customerId, brandId } },
+      data: { totalSpent: { decrement: order.total }, visitCount: { decrement: 1 } },
+    });
 
     if (order.pointsEarned > 0) {
       await changePoints(tx, {
         customerId: order.customerId,
+        brandId,
         points: -order.pointsEarned,
-        lifetimeDelta: -order.pointsEarned,
         type: 'REFUND',
         description: `Huỷ hoá đơn ${order.code}`,
         orderId: order.id,
@@ -165,6 +195,7 @@ export async function cancelOrder(orderId: number, adminId: number) {
         allowNegative: true,
       });
     }
+    await recomputeTier(tx, order.customerId);
   });
   return prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude });
 }
