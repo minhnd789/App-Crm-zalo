@@ -163,7 +163,7 @@ export default function CustomerDetailPage() {
             </Space>
           </Card>
         </Col>
-        <Col xs={24} lg={14}>
+        <Col span={24}>
           <Card title="Ví điểm theo thương hiệu" size="small">
             <Table
               size="small"
@@ -194,12 +194,22 @@ export default function CustomerDetailPage() {
                   dataIndex: 'registeredAt',
                   render: (v: string | null) => (v ? date(v) : <Tag color="orange">Chưa đăng ký</Tag>),
                 },
+                {
+                  title: 'Mã khách r_keeper',
+                  dataIndex: 'posCustomerId',
+                  render: (v: string | null) => (v ? <Typography.Text copyable>{v}</Typography.Text> : <Typography.Text type="secondary">—</Typography.Text>),
+                },
+                {
+                  title: 'Đồng bộ POS lúc',
+                  dataIndex: 'posSyncedAt',
+                  render: (v: string | null) => (v ? datetime(v) : <Tag>Chưa đồng bộ</Tag>),
+                },
                 { title: 'Ghé gần nhất', dataIndex: 'lastVisitAt', render: datetime },
               ]}
             />
           </Card>
         </Col>
-        <Col xs={24} lg={10}>
+        <Col span={24}>
           <Card title="Mini App đã dùng" size="small">
             <Table
               size="small"

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { App, Button, Card, Col, Empty, Form, Image, Input, Modal, Popconfirm, Row, Space, Switch, Table, TimePicker, Typography } from 'antd';
+import { App, Button, Card, Col, Empty, Form, Tag, Image, Input, Modal, Popconfirm, Row, Space, Switch, Table, TimePicker, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { api } from '../api/client';
@@ -104,6 +104,11 @@ export default function BranchesPage() {
                 </Space>
               ),
             },
+            {
+              title: 'Mã POS',
+              dataIndex: 'posCode',
+              render: (v: string | null) => (v ? <Tag color="geekblue">{v}</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
+            },
             { title: 'Điện thoại', dataIndex: 'phone', render: (v) => v || '—' },
             {
               title: 'Thành viên đăng ký',
@@ -179,6 +184,7 @@ export default function BranchesPage() {
 
 interface BranchForm {
   brandId?: number;
+  posCode?: string;
   name: string;
   address: string;
   phone?: string;
@@ -215,6 +221,7 @@ function BranchModal({
             name: branch.name,
             address: branch.address,
             phone: branch.phone ?? '',
+            posCode: branch.posCode ?? '',
             openTime: hm(branch.openTime),
             closeTime: hm(branch.closeTime),
             imageUrl: branch.imageUrl,
@@ -244,6 +251,7 @@ function BranchModal({
             name: v.name.trim(),
             address: v.address.trim(),
             phone: v.phone?.trim() || null,
+            posCode: v.posCode?.trim() || null,
             openTime: v.openTime.format('HH:mm'),
             closeTime: v.closeTime.format('HH:mm'),
             imageUrl: v.imageUrl || null,
@@ -279,6 +287,13 @@ function BranchModal({
           extra="Đặt theo vị trí, VD: Quận 1, Cầu Giấy. Khi hiển thị sẽ kèm tên thương hiệu."
         >
           <Input maxLength={200} placeholder="VD: Quận 1" />
+        </Form.Item>
+        <Form.Item
+          name="posCode"
+          label="Mã POS (r_keeper)"
+          extra="Mã nhà hàng / điểm bán bên r_keeper – để bill gửi về được ghi nhận đúng cơ sở"
+        >
+          <Input maxLength={50} placeholder="VD: RK-Q1" data-testid="branch-pos-code" />
         </Form.Item>
         <Form.Item name="address" label="Địa chỉ" rules={[{ required: true, whitespace: true, message: 'Nhập địa chỉ' }]}>
           <Input maxLength={500} />

@@ -13,6 +13,7 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Row,
   Space,
   Switch,
@@ -21,7 +22,7 @@ import {
   Typography,
 } from 'antd';
 import type { Color } from 'antd/es/color-picker';
-import { CheckCircleFilled, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { CheckCircleFilled, EditOutlined, KeyOutlined, PlusOutlined } from '@ant-design/icons';
 import { api } from '../api/client';
 import type { Brand } from '../api/types';
 import { useRequest } from '../hooks/useRequest';
@@ -126,6 +127,19 @@ export default function BrandsPage() {
                 </div>
               ),
             },
+            {
+              title: 'POS r_keeper',
+              render: (_, b) =>
+                b.posEnabled ? (
+                  <Space direction="vertical" size={2}>
+                    <Tag color={b.hasPosApiKey && b.posWebhookUrl ? 'green' : 'gold'}>Đang bật</Tag>
+                    {!b.hasPosApiKey ? <Typography.Text type="warning" style={{ fontSize: 12 }}>Chưa tạo API key</Typography.Text> : null}
+                    {!b.posWebhookUrl ? <Typography.Text type="warning" style={{ fontSize: 12 }}>Chưa có webhook</Typography.Text> : null}
+                  </Space>
+                ) : (
+                  <Tag>Tắt</Tag>
+                ),
+            },
             { title: 'Cơ sở', align: 'right', render: (_, b) => num(b._count?.branches ?? 0) },
             { title: 'Thành viên', align: 'right', render: (_, b) => num(b._count?.wallets ?? 0) },
             {
@@ -166,7 +180,7 @@ export default function BrandsPage() {
           ]}
         />
       </Card>
-      <BrandModal open={open} brand={editing} onClose={() => setOpen(false)} onSaved={changed} />
+      <BrandModal open={open} brand={editing} onClose={() => setOpen(false)} onSaved={changed} onKeyRotated={() => void reload()} />
     </>
   );
 }
@@ -184,6 +198,10 @@ interface BrandForm {
   zaloOaAccessToken?: string;
   clearAppSecret?: boolean;
   clearOaToken?: boolean;
+  posEnabled: boolean;
+  posWebhookUrl?: string;
+  posWebhookSecret?: string;
+  clearPosSecret?: boolean;
   active: boolean;
 }
 
@@ -195,8 +213,8 @@ function SecretField({
   configured,
   form,
 }: {
-  name: 'zaloAppSecretKey' | 'zaloOaAccessToken';
-  clearName: 'clearAppSecret' | 'clearOaToken';
+  name: 'zaloAppSecretKey' | 'zaloOaAccessToken' | 'posWebhookSecret';
+  clearName: 'clearAppSecret' | 'clearOaToken' | 'clearPosSecret';
   label: string;
   configured: boolean;
   form: ReturnType<typeof Form.useForm<BrandForm>>[0];
@@ -237,10 +255,60 @@ function SecretField({
   );
 }
 
-function BrandModal({ open, brand, onClose, onSaved }: { open: boolean; brand: Brand | null; onClose: () => void; onSaved: () => Promise<void> }) {
+function BrandModal({
+  open,
+  brand,
+  onClose,
+  onSaved,
+  onKeyRotated,
+}: {
+  open: boolean;
+  brand: Brand | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  onKeyRotated: () => void;
+}) {
   const [form] = Form.useForm<BrandForm>();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [saving, setSaving] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
+  const posEnabled = Form.useWatch('posEnabled', form);
+  useEffect(() => setHasKey(!!brand?.hasPosApiKey), [brand, open]);
+
+  const rotateKey = async () => {
+    if (!brand) return;
+    setRotating(true);
+    try {
+      const { apiKey } = await api.post<{ apiKey: string }>(`/brands/${brand.id}/pos-api-key`);
+      setHasKey(true);
+      onKeyRotated();
+      modal.success({
+        title: 'API key POS mới',
+        width: 560,
+        content: (
+          <div>
+            <Typography.Paragraph>
+              <Typography.Text code copyable={{ text: apiKey, tooltips: ['Sao chép', 'Đã sao chép'] }} style={{ wordBreak: 'break-all' }} data-testid="pos-api-key">
+                {apiKey}
+              </Typography.Text>
+            </Typography.Paragraph>
+            <Alert
+              type="warning"
+              showIcon
+              message="Gửi key này cho DCorp, key chỉ hiển thị 1 lần."
+              description="Connector gửi key trong header X-Api-Key khi gọi POST /api/pos/bills. Đóng hộp thoại này sẽ không xem lại được."
+            />
+          </div>
+        ),
+        okText: 'Đã lưu key',
+      });
+    } catch (e) {
+      message.error(errMsg(e));
+    } finally {
+      setRotating(false);
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -256,9 +324,11 @@ function BrandModal({ open, brand, onClose, onSaved }: { open: boolean; brand: B
             about: brand.about ?? '',
             zaloAppId: brand.zaloAppId ?? '',
             zaloOaId: brand.zaloOaId ?? '',
+            posEnabled: brand.posEnabled,
+            posWebhookUrl: brand.posWebhookUrl ?? '',
             active: brand.active,
           }
-        : { primaryColor: '#C2410C', active: true },
+        : { primaryColor: '#C2410C', active: true, posEnabled: false },
     );
   }, [open, brand, form]);
 
@@ -290,8 +360,12 @@ function BrandModal({ open, brand, onClose, onSaved }: { open: boolean; brand: B
             about: v.about?.trim() ? v.about : null,
             zaloAppId: opt(v.zaloAppId),
             zaloOaId: opt(v.zaloOaId),
+            posEnabled: !!v.posEnabled,
+            posWebhookUrl: opt(v.posWebhookUrl),
             active: v.active,
           };
+          const s3 = secret(v.posWebhookSecret, v.clearPosSecret);
+          if (s3 !== undefined) body.posWebhookSecret = s3;
           const s1 = secret(v.zaloAppSecretKey, v.clearAppSecret);
           const s2 = secret(v.zaloOaAccessToken, v.clearOaToken);
           if (s1 !== undefined) body.zaloAppSecretKey = s1;
@@ -394,6 +468,77 @@ function BrandModal({ open, brand, onClose, onSaved }: { open: boolean; brand: B
             />
           </Col>
         </Row>
+
+        <Divider orientation="left" plain>
+          Kết nối phần mềm bán hàng (r_keeper)
+        </Divider>
+        <Typography.Paragraph type="secondary">
+          Khi khách đăng ký thành viên, CRM gửi thông tin khách sang connector của DCorp (webhook). Bill thanh toán / huỷ từ r_keeper
+          được gửi về CRM để cộng điểm và chi tiêu. Mỗi cơ sở cần khai báo <b>Mã POS</b> tương ứng.
+        </Typography.Paragraph>
+        <Form.Item name="posEnabled" label="Bật kết nối POS" valuePropName="checked">
+          <Switch data-testid="pos-enabled" />
+        </Form.Item>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="posWebhookUrl"
+              label="Webhook URL (connector DCorp)"
+              rules={[
+                {
+                  validator: (_, v: string | undefined) => {
+                    if (!v?.trim()) return Promise.resolve();
+                    try {
+                      const u = new URL(v.trim());
+                      if (u.protocol === 'http:' || u.protocol === 'https:') return Promise.resolve();
+                    } catch {
+                      /* không hợp lệ */
+                    }
+                    return Promise.reject(new Error('URL không hợp lệ (cần http:// hoặc https://)'));
+                  },
+                },
+              ]}
+              extra="CRM gửi khách hàng mới / cập nhật tới địa chỉ này"
+            >
+              <Input placeholder="https://connector.dcorp.vn/crm/webhook" disabled={!posEnabled} maxLength={1000} data-testid="pos-webhook-url" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <SecretField
+              form={form}
+              name="posWebhookSecret"
+              clearName="clearPosSecret"
+              label="Webhook secret (ký HMAC)"
+              configured={!!brand?.hasPosWebhookSecret}
+            />
+          </Col>
+        </Row>
+        <Form.Item label="API key POS" extra="Connector dùng key này (header X-Api-Key) để gửi bill về CRM.">
+          <Space wrap>
+            {hasKey ? (
+              <Tag color="green" icon={<CheckCircleFilled />}>
+                Đã tạo
+              </Tag>
+            ) : (
+              <Tag>Chưa tạo</Tag>
+            )}
+            {brand ? (
+              <Popconfirm
+                title="Tạo API key mới?"
+                description={hasKey ? 'Key cũ sẽ ngừng hoạt động ngay – connector phải cập nhật key mới.' : 'Key chỉ hiển thị 1 lần sau khi tạo.'}
+                okText="Tạo key"
+                cancelText="Không"
+                onConfirm={rotateKey}
+              >
+                <Button icon={<KeyOutlined />} loading={rotating} data-testid="pos-rotate-key">
+                  Tạo API key mới
+                </Button>
+              </Popconfirm>
+            ) : (
+              <Typography.Text type="secondary">Lưu thương hiệu trước rồi tạo key.</Typography.Text>
+            )}
+          </Space>
+        </Form.Item>
       </Form>
     </Modal>
   );

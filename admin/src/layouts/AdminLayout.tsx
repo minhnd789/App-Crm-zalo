@@ -19,6 +19,7 @@ import {
   UserOutlined,
   FileTextOutlined,
   AppstoreOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../auth/AuthContext';
 import { isManager, isSuperAdmin, ROLE_LABEL } from '../auth/roles';
@@ -51,6 +52,7 @@ export default function AdminLayout() {
       { key: '/promotions', icon: <NotificationOutlined />, label: <Link to="/promotions">Chương trình ưu đãi</Link> },
       { key: '/tiers', icon: <CrownOutlined />, label: <Link to="/tiers">Hạng thành viên</Link> },
       { key: '/branches', icon: <ShopOutlined />, label: <Link to="/branches">Cơ sở</Link> },
+      { key: '/pos-sync', icon: <SyncOutlined />, label: <Link to="/pos-sync">Đồng bộ POS</Link> },
       ...(manager
         ? ([
             { type: 'divider' },
@@ -64,7 +66,7 @@ export default function AdminLayout() {
   );
 
   // Chọn mục menu khớp dài nhất với đường dẫn hiện tại
-  const keys = ['/', '/customers', '/bookings', '/orders', '/vouchers', '/promotions', '/tiers', '/branches', '/brands', '/settings', '/admins'];
+  const keys = ['/', '/customers', '/bookings', '/orders', '/vouchers', '/promotions', '/tiers', '/branches', '/pos-sync', '/brands', '/settings', '/admins'];
   const selected =
     keys
       .filter((k) => (k === '/' ? location.pathname === '/' : location.pathname === k || location.pathname.startsWith(k + '/')))

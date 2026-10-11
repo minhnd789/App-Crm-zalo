@@ -62,8 +62,13 @@ posRouter.post('/bills', async (req, res) => {
   const bill = billSchema.parse(req.body);
   const brand = req.brand!;
   const result = await processPosBill(brand, bill);
+  // Lưu phản hồi vào nhật ký để quản trị phân biệt bill gửi lại (duplicate) với bill gốc
+  const respond = async (code: number, body: Record<string, unknown>) => {
+    await prisma.posSyncLog.update({ where: { id: result.logId }, data: { response: JSON.stringify(body) } });
+    res.status(code).json(body);
+  };
   if (result.status !== 'SUCCESS') {
-    res.status(202).json({ status: result.status, message: result.message, logId: result.logId });
+    await respond(202, { status: result.status, message: result.message, logId: result.logId });
     return;
   }
   const order = await prisma.order.findUniqueOrThrow({
@@ -73,7 +78,7 @@ posRouter.post('/bills', async (req, res) => {
   const wallet = await prisma.customerWallet.findUnique({
     where: { customerId_brandId: { customerId: order.customerId, brandId: brand.id } },
   });
-  res.status(result.duplicate ? 200 : 201).json({
+  await respond(result.duplicate ? 200 : 201, {
     status: order.status === 'CANCELLED' ? 'CANCELLED' : 'SUCCESS',
     duplicate: result.duplicate,
     warning: result.warning ?? null,

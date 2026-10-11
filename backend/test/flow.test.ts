@@ -517,6 +517,8 @@ test('r_keeper: gửi khách mới sang POS khi đăng ký, nhận bill để c�
     assert.equal(again.status, 200);
     assert.equal(again.body.duplicate, true);
     assert.equal(again.body.customer.points, 140);
+    const dupLog = (await request(app).get('/api/admin/pos/logs?q=CHK-1001').set(central())).body.items[0];
+    assert.equal(JSON.parse(dupLog.response).duplicate, true, 'nhật ký ghi rõ bill gửi lại');
 
     // Khách thấy hoá đơn & điểm trên Mini App
     const me = (await request(app).get('/api/app/me').set(t)).body;

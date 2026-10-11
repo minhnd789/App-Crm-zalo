@@ -18,8 +18,14 @@ Gọi API `/api/admin` của backend trong thư mục `backend/`. Một trang qu
 - **Khách hàng** dùng chung (nhận diện theo SĐT / mã thành viên). Khách đăng ký thành viên trên Mini App của từng
   thương hiệu với ngày sinh và **cơ sở hay đến** → lọc theo cơ sở đăng ký, trạng thái đăng ký, tháng sinh
   ("Sinh nhật tháng này"), hạng. Điểm nằm trong **ví riêng từng thương hiệu**; hạng dùng chung theo tổng chi tiêu.
-- **Hoá đơn chỉ đến từ phần mềm bán hàng (r_keeper)** – trang quản trị không tạo hoá đơn; chỉ xem lịch sử (nguồn POS,
-  mã HĐ POS) và Quản lý có thể huỷ hoá đơn sai để hoàn điểm.
+- **Hoá đơn chỉ đến từ phần mềm bán hàng (r_keeper qua DCorp)** – trang quản trị không tạo hoá đơn; chỉ xem lịch sử
+  (nguồn POS, mã bill r_keeper) và Quản lý có thể huỷ hoá đơn sai để hoàn điểm. Xem `docs/POS-INTEGRATION.md`.
+- **Kết nối r_keeper** (trang *Thương hiệu* → "Kết nối phần mềm bán hàng"): bật kết nối, Webhook URL của connector,
+  Webhook secret (chỉ ghi) và **API key POS** – bấm "Tạo API key mới", key chỉ hiển thị 1 lần để gửi cho DCorp
+  (key cũ ngừng hoạt động). Mỗi cơ sở khai báo **Mã POS** (mã nhà hàng bên r_keeper).
+- **Đồng bộ POS** (`/pos-sync`): nhật ký gửi khách sang POS / nhận bill từ POS, đếm theo trạng thái (Chờ gửi, Thành công,
+  Lỗi, Chưa khớp, Bỏ qua), xem dữ liệu gửi/nhận; Quản lý có thể *Gửi lại*, *Xử lý lại* hoặc *Gán khách & xử lý* cho bill
+  chưa khớp khách. Chi tiết khách có cột Mã khách r_keeper và thời điểm đồng bộ.
 - **Voucher tại quầy**: dùng công cụ *Kiểm tra mã voucher* → *Xác nhận sử dụng* để đánh dấu voucher đã dùng.
 
 ## Chức năng
@@ -34,7 +40,8 @@ Gọi API `/api/admin` của backend trong thư mục `backend/`. Một trang qu
 | Voucher | `/vouchers`, `/vouchers/:id` | Tạo/sửa (Quản lý), tặng hàng loạt theo hạng / cơ sở đăng ký / chọn khách, kiểm tra mã & xác nhận sử dụng tại quầy |
 | Chương trình ưu đãi | `/promotions` | Bài viết/banner hiển thị trên Mini App |
 | Hạng thành viên | `/tiers` | Dùng chung: mức chi tiêu tối thiểu, hệ số nhân điểm, màu, quyền lợi (chỉ quản trị toàn hệ thống sửa) |
-| Cơ sở | `/branches` | Nhóm theo thương hiệu, số thành viên đăng ký, giờ mở cửa, ảnh, bật/tắt |
+| Cơ sở | `/branches` | Nhóm theo thương hiệu, Mã POS (r_keeper), số thành viên đăng ký, giờ mở cửa, ảnh, bật/tắt |
+| Đồng bộ POS | `/pos-sync` | Nhật ký đồng bộ r_keeper, gửi lại / xử lý lại / gán khách cho bill chưa khớp (Quản lý) |
 | Thương hiệu | `/brands` | Chỉ quản trị toàn hệ thống: tên, mã, logo, màu, hotline, giới thiệu, Zalo App/OA ID, secret key & OA token (chỉ ghi) |
 | Cài đặt | `/settings` | Quản lý: cài đặt tích điểm & đặt bàn của thương hiệu |
 | Tài khoản quản trị | `/admins` | Quản lý: quản trị toàn hệ thống gán tài khoản cho thương hiệu; quản lý thương hiệu chỉ tạo/sửa tài khoản trong thương hiệu mình |

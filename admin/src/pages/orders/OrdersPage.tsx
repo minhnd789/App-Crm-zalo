@@ -47,7 +47,7 @@ export default function OrdersPage() {
 
   const columns: ColumnsType<Order> = [
     {
-      title: 'Mã / Mã HĐ POS',
+      title: 'Mã / Mã bill r_keeper',
       dataIndex: 'code',
       render: (v: string, o) => (
         <div className="nowrap">

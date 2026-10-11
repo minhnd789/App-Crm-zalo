@@ -16,6 +16,11 @@ export interface Brand {
   /** Secret không bao giờ trả về – chỉ biết đã cấu hình hay chưa */
   hasZaloAppSecretKey: boolean;
   hasZaloOaAccessToken: boolean;
+  /** Kết nối phần mềm bán hàng r_keeper (qua DCorp) */
+  posEnabled: boolean;
+  posWebhookUrl: string | null;
+  hasPosApiKey: boolean;
+  hasPosWebhookSecret: boolean;
   createdAt?: string;
   _count?: { branches: number; wallets: number };
 }
@@ -55,6 +60,9 @@ export interface Wallet {
   homeBranch?: { id: number; name: string } | null;
   /** null = chưa hoàn tất đăng ký trên Mini App */
   registeredAt?: string | null;
+  /** Mã khách bên r_keeper sau khi đồng bộ */
+  posCustomerId?: string | null;
+  posSyncedAt?: string | null;
 }
 
 export interface Paged<T> {
@@ -79,6 +87,8 @@ export interface Tier {
 export interface Branch {
   id: number;
   brandId: number;
+  /** Mã nhà hàng / điểm bán bên r_keeper */
+  posCode?: string | null;
   brand?: BrandRef;
   _count?: { members: number };
   name: string;
@@ -324,4 +334,35 @@ export interface CreateOrderResult {
   tierUp: boolean;
   tier: Tier | null;
   balance?: number;
+}
+
+export type PosDirection = 'IN' | 'OUT';
+export type PosLogStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'UNMATCHED' | 'IGNORED';
+export type PosLogType = 'CUSTOMER_UPSERT' | 'BILL_PAID' | 'BILL_VOID';
+
+/** Nhật ký đồng bộ r_keeper */
+export interface PosSyncLog {
+  id: number;
+  brandId: number;
+  brand?: BrandRef;
+  direction: PosDirection;
+  type: PosLogType;
+  /** mã bill (IN) hoặc id khách CRM (OUT) */
+  externalId: string | null;
+  customerId: number | null;
+  orderId: number | null;
+  payload: string;
+  response: string | null;
+  status: PosLogStatus;
+  error: string | null;
+  attempts: number;
+  nextRetryAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer?: { id: number; name: string; phone: string | null } | null;
+  order?: { id: number; code: string; total: number; pointsEarned: number; status: OrderStatus } | null;
+}
+
+export interface PosLogsPage extends Paged<PosSyncLog> {
+  statusCounts: Partial<Record<PosLogStatus, number>>;
 }

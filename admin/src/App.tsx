@@ -17,6 +17,7 @@ import BranchesPage from './pages/BranchesPage';
 import SettingsPage from './pages/SettingsPage';
 import AdminsPage from './pages/AdminsPage';
 import BrandsPage from './pages/BrandsPage';
+import PosSyncPage from './pages/pos/PosSyncPage';
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="promotions" element={<PromotionsPage />} />
         <Route path="tiers" element={<TiersPage />} />
         <Route path="branches" element={<BranchesPage />} />
+        <Route path="pos-sync" element={<PosSyncPage />} />
         <Route
           path="brands"
           element={

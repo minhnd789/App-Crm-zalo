@@ -83,8 +83,8 @@ export function OrderDrawer({ orderId, onClose, onChanged }: { orderId: number |
               <LocationText branch={order.branch ? { ...order.branch, brand: order.brand } : null} brandId={order.brandId} />
             </Descriptions.Item>
             <Descriptions.Item label="Nguồn">
-              {order.source === 'POS' ? 'Phần mềm bán hàng (POS)' : 'Nhập thủ công'}
-              {order.externalId ? ` · Mã HĐ POS: ${order.externalId}` : ''}
+              {order.source === 'POS' ? 'Phần mềm bán hàng (r_keeper)' : 'Nhập thủ công'}
+              {order.externalId ? ` · Mã bill r_keeper: ${order.externalId}` : ''}
             </Descriptions.Item>
             <Descriptions.Item label="Thời gian">{datetime(order.createdAt)}</Descriptions.Item>
             {order.createdBy ? <Descriptions.Item label="Nhân viên tạo">{order.createdBy.name}</Descriptions.Item> : null}
