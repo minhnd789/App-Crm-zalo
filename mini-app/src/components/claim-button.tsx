@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useLocation } from "zmp-ui";
+import { useRequireMember } from "@/hooks/use-require-member";
 import { Button, Modal } from "zmp-ui";
-import { api, type ClaimableVoucher, type CustomerVoucher } from "@/api";
+import { ApiError, api, type ClaimableVoucher, type CustomerVoucher } from "@/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotify } from "@/hooks/use-notify";
 import { formatNumber } from "@/utils/format";
@@ -25,6 +27,9 @@ export function ClaimButton({
   const [loading, setLoading] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const isPoints = voucher.pointCost > 0;
+  const requireMember = useRequireMember();
+  const location = useLocation();
+  const here = location.pathname + location.search;
 
   const claim = async () => {
     setConfirm(false);
@@ -35,11 +40,21 @@ export function ClaimButton({
       await refreshMe();
       onClaimed?.(cv);
     } catch (e) {
-      notify.error(e);
+      // Chưa đăng ký thành viên (403) → mở trang đăng ký thay vì chỉ báo lỗi
+      if (e instanceof ApiError && e.status === 403) requireMember(here);
+      else notify.error(e);
     } finally {
       setLoading(false);
     }
   };
+
+  if (me && !me.registered) {
+    return (
+      <Button size={size} fullWidth={fullWidth} className="claim-btn" onClick={() => requireMember(here)}>
+        {isPoints ? "Đăng ký để đổi" : "Đăng ký để nhận"}
+      </Button>
+    );
+  }
 
   if (!voucher.canClaim) {
     return (

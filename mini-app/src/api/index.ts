@@ -14,6 +14,7 @@ import type {
   Order,
   Paginated,
   PointTransaction,
+  RegisterInput,
   Promotion,
   Tier,
   UpdateProfileInput,
@@ -38,6 +39,9 @@ export const api = {
   updateMe: (body: UpdateProfileInput) => request<Me>("/me", { method: "PUT", body }),
   linkPhone: (body: { token?: string; accessToken?: string; phone?: string }) =>
     request<LinkPhoneResponse>("/me/phone", { method: "POST", body }),
+  /** Đăng ký thành viên – có thể gộp tài khoản (merged + token mới) */
+  register: (body: RegisterInput) => request<LinkPhoneResponse>("/me/register", { method: "POST", body }),
+  setHomeBranch: (branchId: number) => request<Me>("/me/home-branch", { method: "PUT", body: { branchId } }),
   getPoints: (page = 1, pageSize = 20) =>
     request<Paginated<PointTransaction>>("/me/points", { query: { page, pageSize } }),
 

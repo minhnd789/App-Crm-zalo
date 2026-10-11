@@ -83,6 +83,7 @@ test('Mini App bắt buộc header X-Brand hợp lệ', async () => {
   assert.equal((await request(app).get('/api/app/config').set('X-Brand', 'KHONG_CO')).status, 400);
   const cfg = await request(app).get('/api/app/config').set('X-Brand', 'BRAND_B');
   assert.equal(cfg.body.brand.name, 'Lẩu Nướng Vui');
+  assert.equal(cfg.body.welcomePoints, 50);
 });
 
 test('đăng nhập lần đầu ở thương hiệu A: chưa là thành viên, hạng mặc định', async () => {
@@ -240,7 +241,7 @@ test('dùng Mini App thương hiệu B, đăng ký cùng SĐT → gộp thành 1
   const link = await request(app)
     .post('/api/app/me/register')
     .set(appB())
-    .send({ name: 'Nguyễn Văn A', birthday: '1990-10-20', branchId: branchB, phone: '0901234567' });
+    .send({ name: 'Văn A (tên Zalo)', birthday: '1990-10-20', branchId: branchB, phone: '0901234567' });
   assert.equal(link.status, 200, JSON.stringify(link.body));
   assert.equal(link.body.merged, true);
   assert.equal(link.body.id, customerId);
@@ -251,6 +252,7 @@ test('dùng Mini App thương hiệu B, đăng ký cùng SĐT → gộp thành 1
   assert.equal((await request(app).get('/api/app/me').set({ Authorization: `Bearer ${oldTokenB}`, 'X-Brand': 'BRAND_B' })).status, 401);
 
   const meB = (await request(app).get('/api/app/me').set(appB())).body;
+  assert.equal(meB.name, 'Nguyễn Văn A', 'giữ tên thành viên đã có khi gộp');
   assert.equal(meB.points, 50, 'điểm chào mừng riêng của ví B');
   assert.equal(meB.registered, true);
   assert.equal(meB.homeBranch.name, 'Quận 3');

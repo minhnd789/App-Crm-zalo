@@ -47,6 +47,7 @@ export async function getPublicConfig(brand: Brand) {
       zaloOaId: brand.zaloOaId,
     },
     pointPerAmount: Number(s.pointPerAmount),
+    welcomePoints: Number(s.welcomePoints),
     bookingMinAdvanceMinutes: Number(s.bookingMinAdvanceMinutes),
     bookingMaxDays: Number(s.bookingMaxDays),
     maxPartySize: Number(s.maxPartySize),

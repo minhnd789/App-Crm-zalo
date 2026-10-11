@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api, errorMessage, type Me } from "@/api";
+import { api, errorMessage, type LinkPhoneResponse, type Me } from "@/api";
 import { setReauthHandler, setToken } from "@/api/client";
 import { storage } from "@/utils/storage";
 import { buildLoginPayload } from "@/utils/zalo";
@@ -22,6 +22,8 @@ interface AuthContextValue {
   retry: () => void;
   /** Thay token (vd sau khi tài khoản được gộp khi liên kết SĐT) */
   applyToken: (token: string) => void;
+  /** Áp kết quả /me/phone hoặc /me/register: thay token nếu tài khoản được gộp. Trả về `merged` */
+  applyMemberResponse: (res: LinkPhoneResponse) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -108,9 +110,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     storage.set(TOKEN_KEY, t);
   }, []);
 
+  const applyMemberResponse = useCallback(
+    async ({ merged, token, ...rest }: LinkPhoneResponse) => {
+      if (merged && token) {
+        // Tài khoản hiện tại đã được gộp vào thành viên sẵn có → bắt buộc dùng token mới
+        applyToken(token);
+        setMe(rest);
+        await refreshMe();
+        return true;
+      }
+      setMe(rest);
+      return false;
+    },
+    [applyToken, refreshMe],
+  );
+
   const value = useMemo<AuthContextValue>(
-    () => ({ me, loading, error, isNew, mock: isMockMode(), refreshMe, setMe, retry, applyToken }),
-    [me, loading, error, isNew, refreshMe, retry, applyToken],
+    () => ({ me, loading, error, isNew, mock: isMockMode(), refreshMe, setMe, retry, applyToken, applyMemberResponse }),
+    [me, loading, error, isNew, refreshMe, retry, applyToken, applyMemberResponse],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

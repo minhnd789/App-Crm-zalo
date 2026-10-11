@@ -82,9 +82,16 @@ export async function registerMember(tx: Tx, brand: Brand, customerId: number, i
     finalId = owner.id;
   }
 
+  // Gộp vào thành viên đã có: giữ tên & ngày sinh đã khai báo trước đó (form ở thương hiệu mới chỉ điền sẵn tên Zalo)
+  const merged = finalId !== customerId;
+  const target = await tx.customer.findUniqueOrThrow({ where: { id: finalId } });
   await tx.customer.update({
     where: { id: finalId },
-    data: { name: input.name, phone: input.phone, birthday: input.birthday },
+    data: {
+      phone: input.phone,
+      name: merged && target.name ? target.name : input.name,
+      birthday: merged && target.birthday ? target.birthday : input.birthday,
+    },
   });
   const wallet = await tx.customerWallet.upsert({
     where: { customerId_brandId: { customerId: finalId, brandId: brand.id } },

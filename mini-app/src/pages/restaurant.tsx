@@ -68,7 +68,7 @@ export default function RestaurantPage() {
             )}
           </div>
 
-          <h3 className="list-title">Hệ thống chi nhánh</h3>
+          <h3 className="list-title">Các cơ sở</h3>
           <div className="list-gap">
             {branches.map((b) => (
               <div key={b.id} className="branch-card">

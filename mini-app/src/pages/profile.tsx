@@ -5,6 +5,7 @@ import { AppPage } from "@/components/app-page";
 import { LinkPhoneButton } from "@/components/link-phone";
 import { InfoRow } from "@/components/section";
 import { useAuth } from "@/hooks/use-auth";
+import { useAppData } from "@/hooks/use-app-data";
 import { useNotify } from "@/hooks/use-notify";
 import { dayjs, formatDate, GENDER_LABEL } from "@/utils/format";
 
@@ -24,6 +25,8 @@ export default function ProfilePage() {
   const [name, setName] = useState(me?.name ?? "");
   const [birthday, setBirthday] = useState<Date | undefined>(birthdayToDate(me?.birthday ?? null));
   const [gender, setGender] = useState<Gender | undefined>(me?.gender ?? undefined);
+  const { branches } = useAppData();
+  const [homeBranchId, setHomeBranchId] = useState<number | undefined>(me?.homeBranch?.id);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -31,6 +34,7 @@ export default function ProfilePage() {
     setName(me.name);
     setBirthday(birthdayToDate(me.birthday));
     setGender(me.gender ?? undefined);
+    setHomeBranchId(me.homeBranch?.id);
     // chỉ đồng bộ khi đổi tài khoản
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.id]);
@@ -44,11 +48,14 @@ export default function ProfilePage() {
     }
     setSaving(true);
     try {
-      const updated = await api.updateMe({
+      let updated = await api.updateMe({
         name: name.trim(),
         birthday: birthday ? dayjs(birthday).format("YYYY-MM-DD") : null,
         gender: gender ?? null,
       });
+      if (me.registered && homeBranchId && homeBranchId !== me.homeBranch?.id) {
+        updated = await api.setHomeBranch(homeBranchId);
+      }
       setMe(updated);
       notify.success("Đã lưu thông tin cá nhân");
       navigate(-1);
@@ -74,9 +81,10 @@ export default function ProfilePage() {
               title="Chọn ngày sinh"
               placeholder="Chọn ngày sinh"
               key={`bday-${me.id}`}
-              defaultValue={birthday}
+              defaultValue={birthday ?? new Date(1995, 0, 1)}
+              formatPickedValueDisplay={(d) => (birthday ? dayjs(d).format("DD/MM/YYYY") : "")}
               action={{ text: "Xong", close: true }}
-              startYear={today.getFullYear() - 100}
+              startDate={new Date(today.getFullYear() - 100, 0, 1)}
               endDate={today}
               columnsFormat="DD-MM-YYYY"
               dateFormat="dd/mm/yyyy"
@@ -97,6 +105,25 @@ export default function ProfilePage() {
               ))}
             </Select>
           </div>
+          {me.registered && (
+            <div className="form-row">
+              <Select
+                label="Cơ sở hay đến"
+                placeholder="Chọn cơ sở"
+                value={homeBranchId}
+                closeOnSelect
+                onChange={(v) => setHomeBranchId(Number(v))}
+              >
+                {branches.map((b) => (
+                  <Option key={b.id} value={b.id} title={b.name} />
+                ))}
+              </Select>
+              {(() => {
+                const b = branches.find((x) => x.id === homeBranchId);
+                return b ? <div className="form-hint">{b.address}</div> : null;
+              })()}
+            </div>
+          )}
         </div>
 
         <div className="card">
@@ -104,10 +131,19 @@ export default function ProfilePage() {
           <InfoRow label="Mã thành viên" value={me.memberCode} />
           <InfoRow label="Số điện thoại" value={me.phone ?? "Chưa liên kết"} />
           <InfoRow label="Ngày tham gia" value={formatDate(me.createdAt)} />
-          {!me.phone && (
+          <InfoRow label="Thành viên" value={me.registered ? `Từ ${formatDate(me.registeredAt)}` : "Chưa đăng ký"} />
+          {!me.registered ? (
             <div style={{ marginTop: 12 }}>
-              <LinkPhoneButton fullWidth variant="secondary" />
+              <Button fullWidth variant="secondary" onClick={() => navigate("/register?redirect=/account")}>
+                Đăng ký thành viên
+              </Button>
             </div>
+          ) : (
+            !me.phone && (
+              <div style={{ marginTop: 12 }}>
+                <LinkPhoneButton fullWidth variant="secondary" />
+              </div>
+            )
           )}
         </div>
 

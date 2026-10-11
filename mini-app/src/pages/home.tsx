@@ -63,7 +63,12 @@ export default function HomePage() {
       </div>
 
       <div className="home-card-wrap">
-        <MemberCard me={me} brandName={config?.brand.name} onShowQR={() => setShowQR(true)} />
+        <MemberCard
+          me={me}
+          brandName={config?.brand.name}
+          onShowQR={() => setShowQR(true)}
+          onRegister={() => navigate("/register")}
+        />
       </div>
       <button className="tier-note" onClick={() => navigate("/tiers")}>
         <AppIcon name="info" size={14} />
@@ -141,7 +146,7 @@ export default function HomePage() {
         </AsyncView>
       </Section>
 
-      {!me.phone && (
+      {me.registered && !me.phone && (
         <div className="callout">
           <AppIcon name="phone" size={22} />
           <div>

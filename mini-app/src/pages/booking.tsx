@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, DatePicker, Input, Modal, Select, Tabs, useSearchParams } from "zmp-ui";
-import { api, type Booking } from "@/api";
+import { Button, DatePicker, Input, Modal, Select, Tabs, useNavigate, useSearchParams } from "zmp-ui";
+import { ApiError, api, type Booking } from "@/api";
 import { AppPage } from "@/components/app-page";
 import { BookingStatusBadge } from "@/components/badge";
 import { AppIcon } from "@/components/icons";
@@ -9,6 +9,7 @@ import { useAppData } from "@/hooks/use-app-data";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotify } from "@/hooks/use-notify";
 import { useRequest } from "@/hooks/use-request";
+import { registerPath, useRequireMember } from "@/hooks/use-require-member";
 import { buildTimeSlots, isValidPhone, normalizePhone } from "@/utils/booking";
 import { dayjs, formatBookingTime, formatDateTime } from "@/utils/format";
 
@@ -34,6 +35,7 @@ function BookingForm({ onBooked }: { onBooked: (b: Booking) => void }) {
   const { config, branches, loading, error, reload } = useAppData();
   const { me } = useAuth();
   const notify = useNotify();
+  const requireMember = useRequireMember();
 
   const [branchId, setBranchId] = useState<number | undefined>(undefined);
   const [date, setDate] = useState<Date>(() => dayjs().startOf("day").toDate());
@@ -46,10 +48,12 @@ function BookingForm({ onBooked }: { onBooked: (b: Booking) => void }) {
   const [touched, setTouched] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
-  // Chọn sẵn chi nhánh đầu tiên
+  // Chọn sẵn cơ sở hay đến (chọn khi đăng ký), nếu không có thì cơ sở đầu tiên
   useEffect(() => {
-    if (branchId === undefined && branches.length) setBranchId(branches[0].id);
-  }, [branches, branchId]);
+    if (branchId !== undefined || !branches.length) return;
+    const home = me?.homeBranch && branches.find((b) => b.id === me.homeBranch!.id);
+    setBranchId(home ? home.id : branches[0].id);
+  }, [branches, branchId, me?.homeBranch]);
 
   // Điền sẵn tên & SĐT từ hồ sơ thành viên
   useEffect(() => {
@@ -92,8 +96,8 @@ function BookingForm({ onBooked }: { onBooked: (b: Booking) => void }) {
   }, [slots, slot]);
 
   if (loading) return <Loading />;
-  if (error || !config) return <ErrorState message="Không tải được thông tin chi nhánh" onRetry={reload} />;
-  if (!branches.length) return <Empty icon="pin" title="Chưa có chi nhánh nhận đặt bàn" />;
+  if (error || !config) return <ErrorState message="Không tải được danh sách cơ sở" onRetry={reload} />;
+  if (!branches.length) return <Empty icon="pin" title="Chưa có cơ sở nhận đặt bàn" />;
 
   const phoneError = touched && !isValidPhone(phone) ? "Số điện thoại không hợp lệ" : undefined;
   const nameError = touched && !name.trim() ? "Vui lòng nhập tên người đặt" : undefined;
@@ -121,7 +125,8 @@ function BookingForm({ onBooked }: { onBooked: (b: Booking) => void }) {
       setTouched(false);
       onBooked(booking);
     } catch (e) {
-      notify.error(e);
+      if (e instanceof ApiError && e.status === 403) requireMember("/booking");
+      else notify.error(e);
     } finally {
       setSubmitting(false);
     }
@@ -133,8 +138,8 @@ function BookingForm({ onBooked }: { onBooked: (b: Booking) => void }) {
     <div className="form">
       <div className="card">
         <Select
-          label="Chi nhánh"
-          placeholder="Chọn chi nhánh"
+          label="Cơ sở"
+          placeholder="Chọn cơ sở"
           value={branchId}
           closeOnSelect
           onChange={(v) => setBranchId(Number(v))}
@@ -366,10 +371,32 @@ function MyBookings({ version }: { version: number }) {
   );
 }
 
+/** Khách chưa đăng ký thành viên: mời đăng ký trước khi đặt bàn */
+function RegisterFirst() {
+  const navigate = useNavigate();
+  return (
+    <Empty
+      icon="calendar"
+      title="Đăng ký thành viên để đặt bàn"
+      description="Chỉ mất 1 phút: xác nhận số điện thoại Zalo, ngày sinh và cơ sở bạn hay đến."
+      action={<Button onClick={() => navigate(registerPath("/booking"))}>Đăng ký thành viên</Button>}
+    />
+  );
+}
+
 export default function BookingPage() {
   const [params, setParams] = useSearchParams();
   const active = params.get("tab") === "mine" ? "mine" : "new";
   const [version, setVersion] = useState(0);
+  const { me } = useAuth();
+  const navigate = useNavigate();
+  const registered = !!me?.registered;
+
+  // Chưa đăng ký → mở trang đăng ký (thay thế trang này trong lịch sử để nút quay lại không lặp)
+  useEffect(() => {
+    if (me && !registered) navigate(registerPath("/booking"), { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <AppPage tab title="Đặt bàn">
@@ -381,12 +408,16 @@ export default function BookingPage() {
       >
         <Tabs.Tab key="new" label="Đặt bàn mới">
           <div className="tab-body">
-            <BookingForm
-              onBooked={() => {
-                setVersion((v) => v + 1);
-                setParams({ tab: "mine" }, { replace: true });
-              }}
-            />
+            {registered ? (
+              <BookingForm
+                onBooked={() => {
+                  setVersion((v) => v + 1);
+                  setParams({ tab: "mine" }, { replace: true });
+                }}
+              />
+            ) : (
+              <RegisterFirst />
+            )}
           </div>
         </Tabs.Tab>
         <Tabs.Tab key="mine" label="Lịch của tôi">

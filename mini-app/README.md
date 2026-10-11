@@ -116,6 +116,15 @@ APP_ID=<app-id-mini-app-B> npx zmp deploy
 
 Lưu ý: khi build production, `ZMPRouter` dùng basename `/zapps/<APP_ID>`, vì vậy thư mục `www/` chỉ chạy đúng trong môi trường Zalo, không mở trực tiếp bằng trình duyệt.
 
+## Đăng ký thành viên
+
+Đăng nhập Zalo chỉ tạo tài khoản; khách phải **đăng ký thành viên** cho từng thương hiệu (trang `/register`) mới được tặng điểm chào mừng, đặt bàn và nhận/đổi voucher (backend trả 403 nếu chưa đăng ký).
+
+- Khai báo: họ tên (lấy sẵn từ Zalo, sửa được), số điện thoại theo Zalo (nút "Lấy số điện thoại từ Zalo" → `getPhoneNumber()`; chế độ giả lập: ô nhập số), ngày sinh, **cơ sở hay đến** (dùng để phân loại khách, đặt bàn mặc định chọn cơ sở này).
+- `POST /me/register` → nếu SĐT đã là thành viên (vd đã đăng ký ở thương hiệu khác) thì backend gộp tài khoản, app thay token mới.
+- Khách chưa đăng ký: app tự mở trang đăng ký 1 lần mỗi lần mở app (có nút "Để sau"); thẻ thành viên ở trang chủ hiện nút "Đăng ký thành viên"; vào Đặt bàn hoặc bấm nhận/đổi voucher sẽ chuyển sang trang đăng ký rồi quay lại.
+- Đổi cơ sở hay đến: Tài khoản → Cơ sở hay đến (`PUT /me/home-branch`).
+
 ## Luồng đăng nhập
 
 - Mọi request gửi header `X-Brand: <VITE_BRAND>`.

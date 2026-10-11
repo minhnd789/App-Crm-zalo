@@ -69,7 +69,7 @@ Mọi request (kể cả công khai) phải có header `X-Brand: <mã thương h
 
 | Method | Path | Mô tả |
 |---|---|---|
-| GET | `/config` | `{ brand: { id, code, name, logoUrl, primaryColor, hotline, about, zaloOaId }, pointPerAmount, bookingMinAdvanceMinutes, bookingMaxDays, maxPartySize }` |
+| GET | `/config` | `{ brand: { id, code, name, logoUrl, primaryColor, hotline, about, zaloOaId }, pointPerAmount, welcomePoints, bookingMinAdvanceMinutes, bookingMaxDays, maxPartySize }` |
 | GET | `/branches` | `Branch[]` đang hoạt động của thương hiệu |
 | GET | `/tiers` | `Tier[]` (dùng chung) sắp xếp theo minSpent tăng dần |
 | GET | `/promotions?featured=true` | `Promotion[]` đang diễn ra |
@@ -98,7 +98,7 @@ Trả về `{ token, isNew, customer: Me }`.
 | GET | `/me` | `Me` |
 | PUT | `/me` | Body `{ name?, birthday?: "YYYY-MM-DD"\|null, gender?: "MALE"\|"FEMALE"\|"OTHER"\|null, followedOA?, idByOA? }` → `Me` |
 | POST | `/me/phone` | Body `{ token: "<getPhoneNumber().token>", accessToken }` (mock: `{ phone }`) → `Me & { merged: boolean, token?: string }`. Khi `merged = true` client **phải thay token** bằng `token` mới |
-| POST | `/me/register` | **Đăng ký thành viên** `{ name, birthday: "YYYY-MM-DD", branchId, token, accessToken }` (token từ `getPhoneNumber()`; bỏ trống nếu tài khoản đã có SĐT; mock: `{ phone }`) → `Me & { merged, token? }`. Tặng điểm chào mừng lần đầu; nếu SĐT đã là thành viên → gộp, client **phải thay token** |
+| POST | `/me/register` | **Đăng ký thành viên** `{ name, birthday: "YYYY-MM-DD", branchId, token, accessToken }` (token từ `getPhoneNumber()`; bỏ trống nếu tài khoản đã có SĐT; mock: `{ phone }`) → `Me & { merged, token? }`. Tặng điểm chào mừng lần đầu; nếu SĐT đã là thành viên → gộp (giữ tên & ngày sinh đã có), client **phải thay token** |
 | PUT | `/me/home-branch` | Đổi cơ sở hay đến `{ branchId }` → `Me` |
 | GET | `/me/points?page=` | Phân trang `PointTransaction` |
 | GET | `/vouchers?type=free\|points` | `(Voucher & { remaining, ownedCount, canClaim: boolean, reason: string\|null })[]` |

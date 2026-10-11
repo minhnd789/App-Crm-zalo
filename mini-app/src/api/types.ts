@@ -23,6 +23,8 @@ export interface BrandInfo {
 export interface AppConfig {
   brand: BrandInfo;
   pointPerAmount: number;
+  /** Điểm tặng khi hoàn tất đăng ký thành viên */
+  welcomePoints: number;
   bookingMinAdvanceMinutes: number;
   bookingMaxDays: number;
   maxPartySize: number;
@@ -144,6 +146,11 @@ export interface Me {
   followedOA: boolean;
   createdAt: string;
   availableVouchers: number;
+  /** Đã đăng ký thành viên tại thương hiệu này (khai báo tên, SĐT, ngày sinh, cơ sở) */
+  registered: boolean;
+  registeredAt: string | null;
+  /** Cơ sở hay đến (chọn khi đăng ký) */
+  homeBranch: Branch | null;
   /** Điểm ở các thương hiệu khác trong hệ thống */
   otherWallets: OtherWallet[];
   tier: Tier | null;
@@ -229,6 +236,17 @@ export interface CreateBookingInput {
   contactName: string;
   contactPhone: string;
   note?: string;
+}
+
+/** POST /me/register – thật: token + accessToken (getPhoneNumber); giả lập: phone; bỏ trống nếu đã có SĐT */
+export interface RegisterInput {
+  name: string;
+  /** YYYY-MM-DD */
+  birthday: string;
+  branchId: number;
+  token?: string;
+  accessToken?: string;
+  phone?: string;
 }
 
 export interface UpdateProfileInput {

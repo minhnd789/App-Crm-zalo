@@ -15,7 +15,7 @@ export function LinkPhoneButton({
   fullWidth?: boolean;
   variant?: "primary" | "secondary" | "tertiary";
 }) {
-  const { mock, setMe, applyToken, refreshMe } = useAuth();
+  const { mock, applyMemberResponse } = useAuth();
   const notify = useNotify();
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState(false);
@@ -24,18 +24,11 @@ export function LinkPhoneButton({
   const submit = async (body: Parameters<typeof api.linkPhone>[0]) => {
     setLoading(true);
     try {
-      const { merged, token, ...me } = await api.linkPhone(body);
+      const merged = await applyMemberResponse(await api.linkPhone(body));
       setModal(false);
-      if (merged && token) {
-        // Tài khoản hiện tại đã được gộp vào thành viên sẵn có → bắt buộc dùng token mới
-        applyToken(token);
-        setMe(me);
-        await refreshMe();
-        notify.success("Đã liên kết với tài khoản thành viên hiện có – điểm và hạng đã được gộp");
-      } else {
-        setMe(me);
-        notify.success("Đã liên kết số điện thoại");
-      }
+      notify.success(
+        merged ? "Đã liên kết với tài khoản thành viên hiện có – điểm và hạng đã được gộp" : "Đã liên kết số điện thoại",
+      );
     } catch (e) {
       notify.error(e);
     } finally {

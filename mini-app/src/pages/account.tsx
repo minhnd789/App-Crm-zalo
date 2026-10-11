@@ -74,11 +74,23 @@ export default function AccountPage() {
         </button>
       </div>
 
-      {!me.phone && (
+      {!me.registered ? (
         <div className="card card--inline">
-          <div className="card__text">Liên kết số điện thoại để tích điểm tại quầy và nhận thông báo đặt bàn.</div>
-          <LinkPhoneButton fullWidth />
+          <div className="card__text">
+            <b>Bạn chưa là thành viên {config?.brand.name}.</b> Đăng ký bằng số điện thoại Zalo để nhận điểm chào mừng, tích
+            điểm, đặt bàn và nhận ưu đãi.
+          </div>
+          <Button fullWidth onClick={() => navigate("/register?redirect=/account")}>
+            Đăng ký thành viên
+          </Button>
         </div>
+      ) : (
+        !me.phone && (
+          <div className="card card--inline">
+            <div className="card__text">Liên kết số điện thoại để tích điểm tại quầy và nhận thông báo đặt bàn.</div>
+            <LinkPhoneButton fullWidth />
+          </div>
+        )
       )}
 
       <div className="menu">
@@ -88,6 +100,16 @@ export default function AccountPage() {
           description="Tên, ngày sinh, giới tính"
           onClick={() => navigate("/account/profile")}
         />
+        {me.registered && (
+          <MenuItem
+            icon={<AppIcon name="pin" />}
+            iconColor="#0369A1"
+            label="Cơ sở hay đến"
+            description={me.homeBranch ? me.homeBranch.name : "Chưa chọn"}
+            right={<span className="menu-item__action">Đổi</span>}
+            onClick={() => navigate("/account/profile")}
+          />
+        )}
         <MenuItem
           icon={<AppIcon name="chart" />}
           iconColor="#15803D"
@@ -141,7 +163,7 @@ export default function AccountPage() {
           icon={<AppIcon name="info" />}
           iconColor="#57534E"
           label={`Về ${config?.brand.name ?? "nhà hàng"}`}
-          description="Hotline, giới thiệu, chi nhánh"
+          description="Hotline, giới thiệu, các cơ sở"
           onClick={() => navigate("/restaurant")}
         />
       </div>

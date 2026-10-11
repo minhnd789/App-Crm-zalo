@@ -1,5 +1,5 @@
-import React from "react";
-import { AnimationRoutes, App, Button, Route, SnackbarProvider, Spinner, ZMPRouter } from "zmp-ui";
+import React, { useEffect } from "react";
+import { AnimationRoutes, App, Button, Route, SnackbarProvider, Spinner, ZMPRouter, useLocation, useNavigate } from "zmp-ui";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { AppDataProvider, useAppData } from "@/hooks/use-app-data";
 import { BottomNav } from "./bottom-nav";
@@ -19,6 +19,26 @@ import OrderDetailPage from "@/pages/order-detail";
 import TiersPage from "@/pages/tiers";
 import RestaurantPage from "@/pages/restaurant";
 import NotFoundPage from "@/pages/not-found";
+import RegisterPage from "@/pages/register";
+
+/** Đã tự mở trang đăng ký trong phiên này chưa (chỉ mở 1 lần mỗi lần mở app) */
+let registerPrompted = false;
+
+/** Sau khi đăng nhập, khách chưa đăng ký thành viên → tự mở trang đăng ký (1 lần / phiên) */
+function RegisterPrompt() {
+  const { me } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    if (!me || me.registered || registerPrompted) return;
+    registerPrompted = true;
+    if (!location.pathname.startsWith("/register")) {
+      const back = location.pathname === "/" ? "" : `?redirect=${encodeURIComponent(location.pathname + location.search)}`;
+      navigate(`/register${back}`);
+    }
+  }, [me, navigate, location]);
+  return null;
+}
 
 /** Màn hình chờ trong lúc đăng nhập Zalo */
 function AuthGate({ children }: { children: React.ReactNode }) {
@@ -75,9 +95,11 @@ const Layout = () => {
                   <Route path="/orders/:id" element={<OrderDetailPage />} />
                   <Route path="/tiers" element={<TiersPage />} />
                   <Route path="/restaurant" element={<RestaurantPage />} />
+                  <Route path="/register" element={<RegisterPage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </AnimationRoutes>
                 <BottomNav />
+                <RegisterPrompt />
               </AuthGate>
             </ZMPRouter>
           </AppDataProvider>
