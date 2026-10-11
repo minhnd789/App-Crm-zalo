@@ -1,21 +1,24 @@
 # CRM Nhà hàng trên Zalo Mini App
 
-Hệ thống chăm sóc khách hàng cho nhà hàng gồm 3 phần tách biệt:
+Hệ thống chăm sóc khách hàng cho chuỗi nhà hàng **nhiều thương hiệu**. Mỗi thương hiệu có Mini App + Zalo OA riêng,
+dùng chung 1 backend, 1 database và 1 trang quản trị. Hệ thống gồm 3 phần tách biệt:
 
 | Thư mục | Mô tả | Người dùng |
 |---|---|---|
-| [`mini-app/`](mini-app) | Zalo Mini App gắn với Zalo OA của nhà hàng | Khách hàng |
+| [`mini-app/`](mini-app) | Zalo Mini App – 1 mã nguồn, build riêng cho từng thương hiệu (`VITE_BRAND`) | Khách hàng |
 | [`admin/`](admin) | Trang quản trị web, chạy ở domain riêng (không nằm trong Mini App) | Quản lý, nhân viên |
 | [`backend/`](backend) | API + cơ sở dữ liệu dùng chung cho cả hai | — |
 
 ```
- Khách hàng (Zalo)                 Nhân viên / Quản lý (trình duyệt)
- ┌──────────────┐                   ┌──────────────────────┐
- │  Mini App    │                   │  Trang quản trị      │
- │  /api/app/*  │                   │  /api/admin/*        │
- └──────┬───────┘                   └──────────┬───────────┘
-        │  JWT khách hàng                      │  JWT quản trị
-        └───────────────┐       ┌──────────────┘
+ Khách hàng (Zalo)                       Nhân viên / Quản lý (trình duyệt)
+ ┌────────────────┐ ┌────────────────┐   ┌──────────────────────────┐
+ │ Mini App       │ │ Mini App       │   │ Trang quản trị           │
+ │ Thương hiệu A  │ │ Thương hiệu B  │   │ (chọn thương hiệu)       │
+ │ X-Brand: A     │ │ X-Brand: B     │   │ X-Brand-Id               │
+ └───────┬────────┘ └───────┬────────┘   └────────────┬─────────────┘
+         └──────────┬───────┘                         │
+                    │ /api/app/*                      │ /api/admin/*
+                    └─────────────┐       ┌───────────┘
                      ┌──▼───────▼──┐      ┌─────────────────────┐
                      │   Backend   │─────▶│ Zalo Graph API / OA │
                      │  (Express)  │      │ xác thực, SĐT, nhắn │
@@ -45,12 +48,23 @@ Hệ thống chăm sóc khách hàng cho nhà hàng gồm 3 phần tách biệt:
 - Quản lý voucher (miễn phí / đổi điểm, giới hạn số lượng, hạng tối thiểu, tặng hàng loạt), kiểm tra mã voucher
 - Quản lý chương trình ưu đãi, hạng thành viên, chi nhánh, cấu hình tích điểm, tài khoản nhân viên (phân quyền Quản lý / Nhân viên)
 
-## Quy tắc tích điểm
+## Đa thương hiệu & quy tắc tích điểm (phương án C)
 
-- Mỗi hoá đơn: `điểm = floor(số tiền thanh toán / pointPerAmount × hệ số hạng)`. Mặc định 10.000đ = 1 điểm.
-- **Điểm hiện có** dùng để đổi voucher. **Điểm tích luỹ** (không bị trừ khi đổi quà) dùng để xét hạng.
-- Hạng mẫu: Thành viên (0) → Bạc (500, x1.2) → Vàng (2.000, x1.5) → Kim cương (5.000, x2). Đổi được trên trang quản trị.
-- Huỷ hoá đơn sẽ trừ lại điểm đã cộng và trả lại voucher đã dùng.
+| | Dùng chung mọi thương hiệu | Riêng từng thương hiệu |
+|---|---|---|
+| Khách hàng, SĐT, mã thành viên (QR) | ✅ | |
+| **Hạng thành viên** (xét theo tổng chi tiêu ở mọi thương hiệu) | ✅ | |
+| **Điểm** (ví điểm), lịch sử điểm | | ✅ |
+| Voucher, chương trình ưu đãi, chi nhánh, đặt bàn, hoá đơn | | ✅ |
+| Cài đặt tích điểm (tỷ lệ, điểm chào mừng), quy định đặt bàn | | ✅ |
+| Mini App, Zalo OA, logo, màu sắc | | ✅ |
+
+- Mỗi hoá đơn: `điểm = floor(số tiền thanh toán / pointPerAmount của thương hiệu × hệ số hạng)`, cộng vào ví của thương hiệu đó. Mặc định 10.000đ = 1 điểm.
+- Điểm ở thương hiệu A chỉ đổi được voucher của A; voucher A chỉ dùng tại A.
+- Hạng mẫu (theo tổng chi tiêu): Thành viên (0đ, x1) → Bạc (5 triệu, x1.2) → Vàng (20 triệu, x1.5) → Kim cương (50 triệu, x2). Hệ số áp dụng ở mọi thương hiệu.
+- Zalo cấp ID khác nhau cho mỗi Mini App, nên khách dùng Mini App thương hiệu thứ hai sẽ được **gộp tự động** vào hồ sơ cũ khi liên kết cùng số điện thoại.
+- Huỷ hoá đơn sẽ trừ lại điểm, trừ chi tiêu (có thể tụt hạng) và trả lại voucher đã dùng.
+- Tài khoản quản trị: **toàn hệ thống** (quản lý mọi thương hiệu, hạng, thương hiệu) hoặc **gắn 1 thương hiệu** (chỉ thấy dữ liệu thương hiệu đó), mỗi loại có quyền Quản lý / Nhân viên.
 
 ## Chạy thử trên máy
 
@@ -68,7 +82,7 @@ npm run dev                   # http://localhost:4000
 cd admin && cp .env.example .env && npm install && npm run dev
 # mở http://localhost:5173, đăng nhập admin / admin123
 
-# 3. Mini App (terminal khác)
+# 3. Mini App (terminal khác) – VITE_BRAND trong .env chọn thương hiệu (BRAND_A / BRAND_B)
 cd mini-app && cp .env.example .env && npm install && npm run dev
 # mở trên trình duyệt ở chế độ mobile; chế độ mock tự đăng nhập bằng tài khoản thử
 ```
@@ -77,15 +91,21 @@ Chạy kiểm thử backend: `cd backend && npm test`.
 
 ## Triển khai thật
 
-1. **Đăng ký Mini App** tại <https://mini.zalo.me>, liên kết với Zalo OA của nhà hàng. Xin quyền *Thông tin người dùng* và *Số điện thoại*.
+1. **Đăng ký Mini App cho từng thương hiệu** tại <https://mini.zalo.me>, liên kết với Zalo OA của thương hiệu. Xin quyền *Thông tin người dùng* và *Số điện thoại*.
+   Trên trang quản trị (mục **Thương hiệu**, tài khoản toàn hệ thống) nhập App ID, Secret Key, OA ID, OA access token cho từng thương hiệu.
 2. **Backend**: chạy trên VPS / cloud có HTTPS.
    - Đổi `provider` trong `backend/prisma/schema.prisma` sang `postgresql` (hoặc `mysql`) và đặt `DATABASE_URL`.
-   - Đặt `JWT_SECRET_APP`, `JWT_SECRET_ADMIN` (chuỗi ngẫu nhiên dài), `ZALO_APP_ID`, `ZALO_APP_SECRET_KEY`, `ZALO_MOCK=false`, `NODE_ENV=production`.
+   - Đặt `JWT_SECRET_APP`, `JWT_SECRET_ADMIN` (chuỗi ngẫu nhiên dài), `ZALO_MOCK=false`, `NODE_ENV=production`.
    - `CORS_ORIGINS` = domain trang quản trị và domain Mini App (`https://h5.zdn.vn`, `zbrowser://h5.zdn.vn`).
    - `npm run build && npm start`.
    - Đổi mật khẩu tài khoản `admin` ngay sau khi đăng nhập lần đầu.
 3. **Trang quản trị**: `npm run build` rồi đưa thư mục `dist/` lên hosting tĩnh (Nginx, Vercel, Netlify...) ở domain riêng.
-4. **Mini App**: đặt `VITE_API_URL` là domain backend, rồi `npx zmp login` và `npx zmp deploy`. Thêm domain backend vào danh sách domain được phép trong cài đặt Mini App.
-5. (Tuỳ chọn) Đặt `ZALO_OA_ACCESS_TOKEN` để gửi tin nhắn OA khi xác nhận đặt bàn hoặc cộng điểm. Tin tư vấn OA chỉ gửi được cho người đã tương tác với OA gần đây; để thông báo giao dịch ổn định nên đăng ký **ZNS**.
+4. **Mini App**: với mỗi thương hiệu, đặt `VITE_API_URL` (domain backend) và `VITE_BRAND` (mã thương hiệu), rồi deploy lên đúng Mini App ID của thương hiệu đó (xem `mini-app/README.md`). Thêm domain backend vào danh sách domain được phép trong cài đặt Mini App.
+5. (Tuỳ chọn) Nhập OA access token của thương hiệu để gửi tin nhắn OA khi xác nhận đặt bàn hoặc cộng điểm. Tin tư vấn OA chỉ gửi được cho người đã tương tác với OA gần đây; để thông báo giao dịch ổn định nên đăng ký **ZNS**.
+
+## Kết nối phần mềm bán hàng (r_keeper) – dự kiến
+
+Hoá đơn đã có sẵn trường `source` (`ADMIN` / `POS`) và `externalId` (mã hoá đơn bên POS, chống đồng bộ trùng)
+để sau này thêm API nhận hoá đơn từ r_keeper (qua DCorp) mà không phải đổi cấu trúc dữ liệu.
 
 Chi tiết API: [`docs/API.md`](docs/API.md).
