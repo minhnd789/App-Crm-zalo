@@ -44,7 +44,8 @@ export async function validateBookingTime(time: Date, partySize: number, branch:
   const m = vnMinutesOfDay(time);
   const open = toMinutes(branch.openTime);
   const close = toMinutes(branch.closeTime);
-  const inHours = open <= close ? m >= open && m <= close : m >= open || m <= close; // hỗ trợ mở qua đêm
+  // Không nhận đặt đúng giờ đóng cửa; hỗ trợ chi nhánh mở qua đêm
+  const inHours = open <= close ? m >= open && m < close : m >= open || m < close;
   if (!inHours) {
     throw badRequest(`Chi nhánh mở cửa từ ${branch.openTime} đến ${branch.closeTime}`);
   }

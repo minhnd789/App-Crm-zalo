@@ -75,7 +75,7 @@ appRouter.get('/promotions', async (req, res) => {
 });
 
 appRouter.get('/promotions/:id', async (req, res) => {
-  const p = await prisma.promotion.findFirst({ where: { id: idParam(req.params.id), active: true } });
+  const p = await prisma.promotion.findFirst({ where: { id: idParam(req.params.id), ...activeWindow(new Date()) } });
   if (!p) throw notFound('Chương trình không tồn tại hoặc đã kết thúc');
   res.json(p);
 });
@@ -347,6 +347,7 @@ appRouter.post('/bookings/:id/cancel', async (req, res) => {
   const b = await prisma.booking.findFirst({ where: { id: idParam(req.params.id), customerId: req.customerId! } });
   if (!b) throw notFound('Lịch đặt bàn không tồn tại');
   if (!['PENDING', 'CONFIRMED'].includes(b.status)) throw badRequest('Không thể huỷ lịch đặt bàn này');
+  if (b.bookingTime < new Date()) throw badRequest('Lịch đặt bàn đã qua, vui lòng liên hệ nhà hàng');
   const updated = await prisma.booking.update({
     where: { id: b.id },
     data: { status: 'CANCELLED' },
