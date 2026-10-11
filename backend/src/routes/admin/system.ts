@@ -9,18 +9,19 @@ import { prisma } from '../../db.js';
 import { config } from '../../config.js';
 import { badRequest } from '../../lib/errors.js';
 import { idParam } from '../../lib/http.js';
-import { requireManager } from '../../lib/auth.js';
+import { brandForWrite, requireManager } from '../../lib/auth.js';
 import { DEFAULT_SETTINGS, getSettings } from '../../services/settings.js';
 
 // ---------- Cấu hình (theo thương hiệu) ----------
 export const settingsRouter = Router();
 
+// Cài đặt luôn của 1 thương hiệu cụ thể: theo bộ lọc hoặc `?brandId=`
 settingsRouter.get('/', async (req, res) => {
-  res.json(await getSettings(req.brand!.id));
+  res.json(await getSettings((await brandForWrite(req, Number(req.query.brandId) || undefined)).id));
 });
 
 settingsRouter.put('/', requireManager, async (req, res) => {
-  const brandId = req.brand!.id;
+  const brandId = (await brandForWrite(req, Number(req.query.brandId) || undefined)).id;
   const body = z.record(z.string(), z.union([z.string(), z.number()])).parse(req.body);
   for (const [key, raw] of Object.entries(body)) {
     if (!(key in DEFAULT_SETTINGS)) continue;

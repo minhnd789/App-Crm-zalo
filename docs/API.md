@@ -17,8 +17,13 @@ Base URL mặc định khi dev: `http://localhost:4000`
 - **Hạng dùng chung**, xét theo **tổng chi tiêu ở mọi thương hiệu** (`Customer.totalSpent` ≥ `Tier.minSpent`).
   Hệ số nhân điểm của hạng áp dụng ở mọi thương hiệu.
 - Mini App gửi header **`X-Brand: <mã thương hiệu>`** ở mọi request. Token khách chỉ dùng được trong Mini App đã cấp.
-- Trang quản trị gửi header **`X-Brand-Id: <id>`** cho dữ liệu theo thương hiệu. Tài khoản gắn thương hiệu
-  (`admin.brandId`) luôn bị giới hạn trong thương hiệu đó (không gửi header = mặc định thương hiệu của mình).
+- **Trang quản trị trung tâm**: header **`X-Brand-Id: <id>`** là *bộ lọc* thương hiệu. Không gửi = xem **tất cả thương hiệu**
+  (mỗi bản ghi trả kèm `brand`). Khi tạo mới ở chế độ tất cả phải chỉ rõ thương hiệu (`brandId` trong body,
+  hoá đơn thì theo cơ sở `branchId`). Tài khoản gắn thương hiệu (`admin.brandId`) luôn bị giới hạn trong thương hiệu đó.
+- **Cơ sở** (Branch) của mỗi thương hiệu đặt tên theo vị trí (vd "Quận 1"); hiển thị kèm tên thương hiệu.
+- **Đăng ký thành viên** trên Mini App: tên & SĐT lấy theo Zalo, khách nhập ngày sinh và chọn cơ sở hay đến
+  (`CustomerWallet.homeBranchId`) để phân loại. Điểm chào mừng tặng khi hoàn tất đăng ký (1 lần/thương hiệu).
+  Chưa đăng ký thì chưa đặt bàn / nhận voucher được (403).
 
 ## Kiểu dữ liệu chính
 
@@ -26,7 +31,7 @@ Base URL mặc định khi dev: `http://localhost:4000`
 Brand { id, code, name, logoUrl, primaryColor, hotline, about, zaloAppId, zaloOaId, active,
   hasZaloAppSecretKey: boolean, hasZaloOaAccessToken: boolean /* secret không bao giờ trả về */ }
 Tier { id, name, code, minSpent /* VND, dùng chung */, pointMultiplier, benefits: string|null /* nhiều dòng */, color }
-Wallet { id, customerId, brandId, points, lifetimePoints, totalSpent, visitCount, lastVisitAt } // ví điểm theo thương hiệu
+Wallet { id, customerId, brandId, homeBranchId, homeBranch, registeredAt, points, lifetimePoints, totalSpent, visitCount, lastVisitAt } // ví điểm / thành viên theo thương hiệu
 Branch { id, brandId, name, address, phone, openTime: "HH:mm", closeTime: "HH:mm", imageUrl, active }
 Promotion { id, brandId, title, summary, content /* nhiều dòng */, imageUrl, startDate, endDate, featured, active, createdAt }
 Voucher {
@@ -84,6 +89,7 @@ Trả về `{ token, isNew, customer: Me }`.
   points, lifetimePoints, brandSpent, brandVisitCount,        // tại thương hiệu này
   totalSpent, visitCount,                                     // mọi thương hiệu – dùng xét hạng
   followedOA, createdAt, availableVouchers,
+  registered: boolean, registeredAt, homeBranch: Branch|null,  // đăng ký thành viên tại thương hiệu này
   otherWallets: { brand: { id, name, code }, points }[],      // điểm ở thương hiệu khác
   tier: Tier|null, nextTier: Tier|null, amountToNextTier /* VND còn thiếu để lên hạng */ }`
 
@@ -92,6 +98,8 @@ Trả về `{ token, isNew, customer: Me }`.
 | GET | `/me` | `Me` |
 | PUT | `/me` | Body `{ name?, birthday?: "YYYY-MM-DD"\|null, gender?: "MALE"\|"FEMALE"\|"OTHER"\|null, followedOA?, idByOA? }` → `Me` |
 | POST | `/me/phone` | Body `{ token: "<getPhoneNumber().token>", accessToken }` (mock: `{ phone }`) → `Me & { merged: boolean, token?: string }`. Khi `merged = true` client **phải thay token** bằng `token` mới |
+| POST | `/me/register` | **Đăng ký thành viên** `{ name, birthday: "YYYY-MM-DD", branchId, token, accessToken }` (token từ `getPhoneNumber()`; bỏ trống nếu tài khoản đã có SĐT; mock: `{ phone }`) → `Me & { merged, token? }`. Tặng điểm chào mừng lần đầu; nếu SĐT đã là thành viên → gộp, client **phải thay token** |
+| PUT | `/me/home-branch` | Đổi cơ sở hay đến `{ branchId }` → `Me` |
 | GET | `/me/points?page=` | Phân trang `PointTransaction` |
 | GET | `/vouchers?type=free\|points` | `(Voucher & { remaining, ownedCount, canClaim: boolean, reason: string\|null })[]` |
 | GET | `/vouchers/:id` | Như trên, 1 phần tử |
@@ -112,7 +120,8 @@ Trả về `{ token, isNew, customer: Me }`.
 Role: `ADMIN` (quản lý) và `STAFF` (nhân viên – thao tác nghiệp vụ). Các API đánh dấu 🔒 chỉ ADMIN.
 `brandId = null` → tài khoản toàn hệ thống; có `brandId` → chỉ thao tác trong thương hiệu đó.
 Các API đánh dấu 🌐 chỉ **ADMIN toàn hệ thống** (role ADMIN và brandId null).
-Các API đánh dấu 🏷 là dữ liệu theo thương hiệu, cần header `X-Brand-Id` (trừ tài khoản đã gắn thương hiệu).
+Các API đánh dấu 🏷 là dữ liệu theo thương hiệu: lọc theo header `X-Brand-Id` (không gửi = tất cả thương hiệu, mỗi bản ghi kèm `brand`).
+Thao tác trên 1 bản ghi (sửa, huỷ, đổi trạng thái) tự lấy thương hiệu của bản ghi. Tạo mới ở chế độ tất cả cần `brandId` trong body.
 
 | Method | Path | Mô tả |
 |---|---|---|
@@ -120,28 +129,28 @@ Các API đánh dấu 🏷 là dữ liệu theo thương hiệu, cần header `X
 | GET | `/auth/me` | admin hiện tại + `brands: Brand[]` được phép thao tác |
 | GET/POST/PUT 🌐 | `/brands[/:id]` | Quản lý thương hiệu `{ code, name, logoUrl, primaryColor, hotline, about, zaloAppId, zaloOaId, zaloAppSecretKey, zaloOaAccessToken, active }`. Trường secret: không gửi / chuỗi rỗng = giữ nguyên, `null` = xoá |
 | POST | `/auth/change-password` | `{ oldPassword, newPassword }` |
-| GET 🏷 | `/dashboard` | `{ totalCustomers, newCustomersToday, bookingsToday, pendingBookings, revenueToday, ordersToday, revenueMonth, ordersMonth, vouchersUsedMonth, tierDistribution: {id,name,color,count}[], revenueByDay: {date,revenue,orders}[], recentOrders, upcomingBookings }` |
-| GET | `/customers?q=&tierId=&onlyBrand=true&sort=createdAt\|totalSpent\|lastVisitAt&page=` | Phân trang khách dùng chung (+ `tier`, `brandIds` đã dùng Mini App, `wallet` của thương hiệu đang chọn nếu có X-Brand-Id). `onlyBrand=true` = chỉ khách đã có ví ở thương hiệu đang chọn |
-| GET 🏷 | `/customers/lookup?q=<SĐT hoặc mã thành viên>` | Khách + `wallet` + `vouchers` (AVAILABLE) + `bookings` (đang mở) **của thương hiệu đang chọn**. 400 nếu `q` rỗng, 404 nếu không có |
+| GET 🏷 | `/dashboard?branchId=` | `{ revenueByBrand: {id,name,primaryColor,revenue,orders}[], revenueByBranch: {id,name,brandId,brandName,revenue,orders}[] (tháng này), totalCustomers, newCustomersToday, bookingsToday, pendingBookings, revenueToday, ordersToday, revenueMonth, ordersMonth, vouchersUsedMonth, tierDistribution: {id,name,color,count}[], revenueByDay: {date,revenue,orders}[], recentOrders, upcomingBookings }` |
+| GET 🏷 | `/customers?q=&tierId=&branchId=&registered=true\|false&birthMonth=1..12&sort=createdAt\|totalSpent\|lastVisitAt&page=` | Phân trang khách (+ `tier`, `wallets[]` kèm `brand`, `homeBranch`, `registeredAt`; `wallet` = ví thương hiệu đang lọc). Khi lọc thương hiệu/cơ sở/đăng ký: chỉ khách là thành viên phù hợp. `branchId` = cơ sở khách chọn khi đăng ký |
+| GET 🏷 | `/customers/lookup?q=<SĐT hoặc mã thành viên>&brandId=` | (cần thương hiệu: bộ lọc hoặc `brandId` – thương hiệu của cơ sở đang xuất hoá đơn) Khách + `wallet` + `vouchers` (AVAILABLE) + `bookings` (đang mở) **của thương hiệu đang chọn**. 400 nếu `q` rỗng, 404 nếu không có |
 | GET | `/customers/:id` | Chi tiết: `tier, nextTier, amountToNextTier, wallets[] (+brand), zaloAccounts[] (+brand) – tài khoản gắn thương hiệu chỉ thấy ví/tài khoản của thương hiệu mình, wallet` (ví thương hiệu đang chọn), `orders, bookings, vouchers, pointTransactions` (lọc theo thương hiệu đang chọn nếu có X-Brand-Id, mỗi bản ghi kèm `brand`) |
 | PUT | `/customers/:id` | `{ name?, phone?, birthday?, gender?, note? }` |
-| POST 🏷 | `/customers/:id/points` 🔒 | `{ points: số +/-, description }` → `{ wallet }` (ví thương hiệu đang chọn; không ảnh hưởng hạng) |
+| POST 🏷 | `/customers/:id/points` 🔒 | `{ points: số +/-, description, brandId? }` → `{ wallet }` (ví thương hiệu đang chọn; không ảnh hưởng hạng) |
 | POST 🏷 | `/customers/:id/vouchers` | Tặng voucher của thương hiệu `{ voucherId }` |
 | GET 🏷 | `/bookings?status=&branchId=&from=ISO&to=ISO&q=&order=asc\|desc&page=` | Phân trang (+ `branch`, `customer`) |
 | GET 🏷 | `/bookings/:id` | Chi tiết |
 | PATCH 🏷 | `/bookings/:id` | `{ status?, adminNote?, notify?: boolean (mặc định true – nhắn tin OA cho khách) }` – luồng: PENDING→CONFIRMED/CANCELLED; CONFIRMED→ARRIVED/CANCELLED/NO_SHOW/PENDING; ARRIVED→COMPLETED/CONFIRMED; CANCELLED→PENDING; NO_SHOW→CONFIRMED (cho phép hoàn tác thao tác nhầm) |
 | GET 🏷 | `/orders?q=&customerId=&branchId=&status=&from=&to=&page=` | Phân trang + `sumTotal`, `sumPoints` |
 | GET 🏷 | `/orders/:id` | Chi tiết |
-| POST 🏷 | `/orders` | `{ customerId, branchId?, bookingId?, items: [{name, quantity, price}], subtotal? (khi không nhập món), discount?, voucherCode?, note? }` → `{ order, tierUp, tier, balance }` (balance = điểm ví thương hiệu sau khi cộng). `bookingId` phải đang PENDING/CONFIRMED/ARRIVED và sẽ chuyển sang COMPLETED |
+| POST 🏷 | `/orders` | `{ customerId, branchId (bắt buộc – cơ sở xuất hoá đơn, quyết định thương hiệu), bookingId?, items: [{name, quantity, price}], subtotal? (khi không nhập món), discount?, voucherCode?, note? }` → `{ order, tierUp, tier, balance }` (balance = điểm ví thương hiệu sau khi cộng). `bookingId` phải đang PENDING/CONFIRMED/ARRIVED và sẽ chuyển sang COMPLETED |
 | POST 🏷 | `/orders/:id/cancel` 🔒 | Huỷ hoá đơn, hoàn điểm |
 | GET 🏷 | `/vouchers?q=&type=free\|points&page=` | Phân trang voucher (+ `usedCount`) |
 | GET 🏷 | `/vouchers/check?code=&amount=` | Kiểm tra mã voucher của khách → `CustomerVoucher & { valid, reason, discount }` |
 | GET 🏷 | `/vouchers/:id` | Chi tiết + `stats` + `recent` |
 | POST/PUT/DELETE 🏷 | `/vouchers`, `/vouchers/:id` 🔒 | CRUD (xoá voucher đã phát sẽ chỉ ngừng hoạt động) |
-| POST 🏷 | `/vouchers/:id/gift` 🔒 | `{ customerIds?: number[], tierId? }` → `{ success, failed, errors }` |
-| GET/POST/PUT/DELETE 🏷 | `/promotions[/:id]` (ghi 🔒) | CRUD chương trình ưu đãi |
-| GET/POST/PUT/DELETE 🏷 | `/branches[/:id]` (ghi 🔒) | CRUD chi nhánh |
+| POST 🏷 | `/vouchers/:id/gift` 🔒 | `{ customerIds?: number[], tierId?, branchId? (khách đã đăng ký tại cơ sở) }` → `{ success, failed, errors }` |
+| GET/POST/PUT/DELETE 🏷 | `/promotions[/:id]` (ghi 🔒) | CRUD chương trình ưu đãi (+ `brand`; tạo mới cần `brandId` khi xem tất cả) |
+| GET/POST/PUT/DELETE 🏷 | `/branches[/:id]` (ghi 🔒) | CRUD cơ sở (+ `brand`, `_count.members` = số khách đăng ký tại cơ sở; tạo mới cần `brandId` khi xem tất cả) |
 | GET/POST/PUT/DELETE | `/tiers[/:id]` (ghi 🌐) | CRUD hạng dùng chung `{ name, code, minSpent, pointMultiplier, benefits, color }` (tự xếp hạng lại khách) – GET có `_count.customers` |
-| GET / PUT 🔒 🏷 | `/settings` | Cài đặt của thương hiệu `{ pointPerAmount, welcomePoints, bookingMinAdvanceMinutes, bookingMaxDays, maxPartySize }` (giá trị dạng string). Tên, hotline, giới thiệu nằm ở Brand |
+| GET / PUT 🔒 🏷 | `/settings?brandId=` | Cài đặt của 1 thương hiệu (bộ lọc hoặc `?brandId=`) `{ pointPerAmount, welcomePoints, bookingMinAdvanceMinutes, bookingMaxDays, maxPartySize }` (giá trị dạng string). Tên, hotline, giới thiệu nằm ở Brand |
 | GET/POST/PUT 🔒 | `/admins[/:id]` | Quản lý tài khoản `{ username, name, password, role, active, brandId }` (+ `brand`). Quản lý thương hiệu chỉ thấy/tạo tài khoản trong thương hiệu mình |
 | POST | `/upload` | multipart field `file` (ảnh ≤5MB) → `{ url }` |

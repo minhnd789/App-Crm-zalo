@@ -11,9 +11,9 @@ import { branchesRouter, promotionsRouter, tiersRouter } from './catalog.js';
 import { adminsRouter, settingsRouter, uploadRouter } from './system.js';
 
 /**
- * API trang quản trị – prefix /api/admin.
- * Thương hiệu đang thao tác gửi qua header `X-Brand-Id`
- * (tài khoản gắn với 1 thương hiệu luôn bị giới hạn trong thương hiệu đó).
+ * API trang quản trị trung tâm – prefix /api/admin.
+ * Lọc theo thương hiệu qua header `X-Brand-Id` (không gửi = tất cả thương hiệu);
+ * tài khoản gắn với 1 thương hiệu luôn bị giới hạn trong thương hiệu đó.
  */
 export const adminRouter = Router();
 
@@ -25,13 +25,13 @@ adminRouter.use('/brands', brandsRouter);
 adminRouter.use('/tiers', tiersRouter);
 adminRouter.use('/admins', adminsRouter);
 adminRouter.use('/upload', uploadRouter);
-adminRouter.use('/customers', adminBrand(false), customersRouter);
 
-// Dữ liệu theo thương hiệu
-adminRouter.use('/dashboard', adminBrand(), dashboardRouter);
-adminRouter.use('/bookings', adminBrand(), bookingsRouter);
-adminRouter.use('/orders', adminBrand(), ordersRouter);
-adminRouter.use('/vouchers', adminBrand(), vouchersRouter);
-adminRouter.use('/promotions', adminBrand(), promotionsRouter);
-adminRouter.use('/branches', adminBrand(), branchesRouter);
-adminRouter.use('/settings', adminBrand(), settingsRouter);
+// Dữ liệu lọc theo thương hiệu
+adminRouter.use('/customers', adminBrand, customersRouter);
+adminRouter.use('/dashboard', adminBrand, dashboardRouter);
+adminRouter.use('/bookings', adminBrand, bookingsRouter);
+adminRouter.use('/orders', adminBrand, ordersRouter);
+adminRouter.use('/vouchers', adminBrand, vouchersRouter);
+adminRouter.use('/promotions', adminBrand, promotionsRouter);
+adminRouter.use('/branches', adminBrand, branchesRouter);
+adminRouter.use('/settings', adminBrand, settingsRouter);

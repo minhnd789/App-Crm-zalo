@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { badRequest, notFound } from '../../lib/errors.js';
+import { assertBrandAccess, brandWhere } from '../../lib/auth.js';
 import { idParam, paging } from '../../lib/http.js';
 import { sendOAMessage } from '../../lib/zalo.js';
 import { BOOKING_STATUSES, BOOKING_STATUS_LABEL } from '../../services/bookings.js';
@@ -18,7 +19,7 @@ bookingsRouter.get('/', async (req, res) => {
   const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : undefined;
   const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : undefined;
   const where: Prisma.BookingWhereInput = {
-    brandId: req.brand!.id,
+    ...brandWhere(req),
     ...(status ? { status } : {}),
     ...(branchId ? { branchId } : {}),
     ...(from || to ? { bookingTime: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } } : {}),
@@ -27,7 +28,11 @@ bookingsRouter.get('/', async (req, res) => {
   const [items, total] = await Promise.all([
     prisma.booking.findMany({
       where,
-      include: { branch: true, customer: { select: { id: true, name: true, phone: true, memberCode: true } } },
+      include: {
+        branch: true,
+        brand: { select: { id: true, name: true, primaryColor: true } },
+        customer: { select: { id: true, name: true, phone: true, memberCode: true } },
+      },
       orderBy: { bookingTime: req.query.order === 'desc' ? 'desc' : 'asc' },
       skip,
       take,
@@ -38,11 +43,12 @@ bookingsRouter.get('/', async (req, res) => {
 });
 
 bookingsRouter.get('/:id', async (req, res) => {
-  const b = await prisma.booking.findFirst({
-    where: { id: idParam(req.params.id), brandId: req.brand!.id },
-    include: { branch: true, customer: { include: { tier: true } }, orders: true },
+  const b = await prisma.booking.findUnique({
+    where: { id: idParam(req.params.id) },
+    include: { branch: true, brand: { select: { id: true, name: true } }, customer: { include: { tier: true } }, orders: true },
   });
   if (!b) throw notFound('Lịch đặt bàn không tồn tại');
+  assertBrandAccess(req, b.brandId, 'Lịch đặt bàn không tồn tại');
   res.json(b);
 });
 
@@ -63,9 +69,10 @@ bookingsRouter.patch('/:id', async (req, res) => {
       notify: z.boolean().default(true),
     })
     .parse(req.body);
-  const brand = req.brand!;
-  const b = await prisma.booking.findFirst({ where: { id: idParam(req.params.id), brandId: brand.id } });
+  const b = await prisma.booking.findUnique({ where: { id: idParam(req.params.id) }, include: { brand: true } });
   if (!b) throw notFound('Lịch đặt bàn không tồn tại');
+  assertBrandAccess(req, b.brandId, 'Lịch đặt bàn không tồn tại');
+  const brand = b.brand;
   if (body.status && body.status !== b.status && !TRANSITIONS[b.status]?.includes(body.status)) {
     throw badRequest(
       `Không thể chuyển từ "${BOOKING_STATUS_LABEL[b.status as keyof typeof BOOKING_STATUS_LABEL]}" sang "${BOOKING_STATUS_LABEL[body.status]}"`,

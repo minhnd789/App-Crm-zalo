@@ -3,14 +3,14 @@ import { z } from 'zod';
 import { prisma } from '../../db.js';
 import { config } from '../../config.js';
 import { appBrand, requireCustomer, signCustomerToken } from '../../lib/auth.js';
-import { badRequest, notFound } from '../../lib/errors.js';
+import { HttpError, badRequest, notFound } from '../../lib/errors.js';
 import { idParam, paging, phoneSchema, optionalDate } from '../../lib/http.js';
 import { bookingCode } from '../../lib/codes.js';
 import { getZaloPhone, getZaloProfile, sendOAMessage } from '../../lib/zalo.js';
 import { expireVouchers, issueVoucher, membershipInfo, voucherIneligibility } from '../../services/loyalty.js';
 import { getPublicConfig } from '../../services/settings.js';
 import { validateBookingTime } from '../../services/bookings.js';
-import { loginWithZalo, mergeCustomers } from '../../services/customers.js';
+import { loginWithZalo, mergeCustomers, registerMember } from '../../services/customers.js';
 
 /**
  * API cho Zalo Mini App (khách hàng) – prefix /api/app.
@@ -30,7 +30,7 @@ async function serializeMe(customerId: number, brandId: number) {
     where: { id: customerId },
     include: {
       tier: true,
-      wallets: { include: { brand: { select: { id: true, name: true, code: true } } } },
+      wallets: { include: { brand: { select: { id: true, name: true, code: true } }, homeBranch: true } },
       zaloAccounts: { where: { brandId } },
     },
   });
@@ -55,6 +55,11 @@ async function serializeMe(customerId: number, brandId: number) {
     visitCount: c.visitCount,
     followedOA: c.zaloAccounts[0]?.followedOA ?? false,
     createdAt: c.createdAt,
+    /** Đã hoàn tất đăng ký thành viên tại thương hiệu này (SĐT, ngày sinh, cơ sở) */
+    registered: !!wallet?.registeredAt,
+    registeredAt: wallet?.registeredAt ?? null,
+    /** Cơ sở khách chọn khi đăng ký */
+    homeBranch: wallet?.homeBranch ?? null,
     availableVouchers,
     /** Điểm ở các thương hiệu khác (để khách biết) */
     otherWallets: c.wallets
@@ -205,6 +210,62 @@ appRouter.post('/me/phone', async (req, res) => {
   });
 });
 
+const registerBody = z.object({
+  name: z.string().trim().min(1, 'Vui lòng nhập họ tên').max(100),
+  birthday: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày sinh không hợp lệ')
+    .transform((v) => new Date(`${v}T00:00:00Z`))
+    .refine((d) => !Number.isNaN(d.getTime()) && d < new Date() && d.getUTCFullYear() >= 1900, 'Ngày sinh không hợp lệ'),
+  branchId: z.number().int().positive(),
+  /** token từ zmp-sdk getPhoneNumber() + accessToken; bỏ trống nếu tài khoản đã có SĐT */
+  token: z.string().optional(),
+  accessToken: z.string().optional(),
+  /** Chỉ dùng khi ZALO_MOCK=true */
+  phone: z.string().optional(),
+});
+
+/**
+ * Đăng ký thành viên: tên & SĐT theo Zalo, khách nhập thêm ngày sinh và chọn cơ sở hay đến.
+ * Tặng điểm chào mừng lần đầu. Nếu SĐT đã là thành viên → gộp tài khoản, trả `merged` + `token` mới.
+ */
+appRouter.post('/me/register', async (req, res) => {
+  const body = registerBody.parse(req.body);
+  const brand = req.brand!;
+  let phone: string;
+  if (config.zalo.mock && body.phone) {
+    phone = phoneSchema.parse(body.phone);
+  } else if (body.token && body.accessToken) {
+    phone = phoneSchema.parse(await getZaloPhone(body.accessToken, body.token, brand.zaloAppSecretKey));
+  } else {
+    const current = await prisma.customer.findUniqueOrThrow({ where: { id: req.customerId! } });
+    if (!current.phone) throw badRequest('Vui lòng cho phép chia sẻ số điện thoại Zalo');
+    phone = current.phone;
+  }
+  const result = await prisma.$transaction((tx) =>
+    registerMember(tx, brand, req.customerId!, { name: body.name, phone, birthday: body.birthday, branchId: body.branchId }),
+  );
+  res.json({
+    ...(await serializeMe(result.customerId, brand.id)),
+    merged: result.merged,
+    token: result.merged ? signCustomerToken(result.customerId, brand.id) : undefined,
+  });
+});
+
+/** Đổi cơ sở hay đến (sau khi đã đăng ký) */
+appRouter.put('/me/home-branch', async (req, res) => {
+  const { branchId } = z.object({ branchId: z.number().int().positive() }).parse(req.body);
+  const brandId = req.brand!.id;
+  const branch = await prisma.branch.findFirst({ where: { id: branchId, brandId, active: true } });
+  if (!branch) throw badRequest('Cơ sở không hợp lệ');
+  await prisma.customerWallet.upsert({
+    where: { customerId_brandId: { customerId: req.customerId!, brandId } },
+    create: { customerId: req.customerId!, brandId, homeBranchId: branchId },
+    update: { homeBranchId: branchId },
+  });
+  res.json(await serializeMe(req.customerId!, brandId));
+});
+
 appRouter.get('/me/points', async (req, res) => {
   const { page, pageSize, skip, take } = paging(req.query);
   const where = { customerId: req.customerId!, brandId: req.brand!.id };
@@ -216,6 +277,11 @@ appRouter.get('/me/points', async (req, res) => {
 });
 
 // ----- Voucher -----
+
+async function requireRegistered(customerId: number, brandId: number) {
+  const w = await prisma.customerWallet.findUnique({ where: { customerId_brandId: { customerId, brandId } } });
+  if (!w?.registeredAt) throw new HttpError(403, 'Vui lòng đăng ký thành viên để sử dụng tính năng này');
+}
 
 async function walletPoints(customerId: number, brandId: number) {
   const w = await prisma.customerWallet.findUnique({ where: { customerId_brandId: { customerId, brandId } } });
@@ -268,6 +334,7 @@ appRouter.post('/vouchers/:id/claim', async (req, res) => {
   const voucherId = idParam(req.params.id);
   const v = await prisma.voucher.findUnique({ where: { id: voucherId } });
   if (!v || v.brandId !== req.brand!.id) throw notFound('Ưu đãi không tồn tại');
+  await requireRegistered(req.customerId!, v.brandId);
   const cv = await prisma.$transaction((tx) =>
     issueVoucher(tx, {
       customerId: req.customerId!,
@@ -345,6 +412,7 @@ appRouter.get('/bookings/:id', async (req, res) => {
 appRouter.post('/bookings', async (req, res) => {
   const body = bookingSchema.parse(req.body);
   const brandId = req.brand!.id;
+  await requireRegistered(req.customerId!, brandId);
   const branch = await prisma.branch.findFirst({ where: { id: body.branchId, brandId, active: true } });
   if (!branch) throw badRequest('Chi nhánh không tồn tại');
   await validateBookingTime(body.bookingTime, body.partySize, branch);

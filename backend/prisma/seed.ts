@@ -37,8 +37,8 @@ async function main() {
       hotline: '19001234',
       about: 'Ẩm thực Việt truyền thống.',
       branches: [
-        { name: 'Ngon – Quận 1', address: '123 Nguyễn Huệ, Quận 1, TP.HCM', phone: '0281234567', openTime: '10:00', closeTime: '22:00' },
-        { name: 'Ngon – Cầu Giấy', address: '45 Trần Thái Tông, Cầu Giấy, Hà Nội', phone: '0247654321', openTime: '10:00', closeTime: '22:30' },
+        { name: 'Quận 1', address: '123 Nguyễn Huệ, Quận 1, TP.HCM', phone: '0281234567', openTime: '10:00', closeTime: '22:00' },
+        { name: 'Cầu Giấy', address: '45 Trần Thái Tông, Cầu Giấy, Hà Nội', phone: '0247654321', openTime: '10:00', closeTime: '22:30' },
       ],
     },
     {
@@ -47,7 +47,10 @@ async function main() {
       primaryColor: '#B91C1C',
       hotline: '19005678',
       about: 'Lẩu và nướng kiểu Hàn.',
-      branches: [{ name: 'Lẩu Nướng Vui – Quận 3', address: '88 Võ Văn Tần, Quận 3, TP.HCM', phone: '0289876543', openTime: '11:00', closeTime: '23:00' }],
+      branches: [
+        { name: 'Quận 3', address: '88 Võ Văn Tần, Quận 3, TP.HCM', phone: '0289876543', openTime: '11:00', closeTime: '23:00' },
+        { name: 'Thủ Đức', address: '12 Võ Văn Ngân, TP. Thủ Đức, TP.HCM', phone: '0281112233', openTime: '11:00', closeTime: '23:00' },
+      ],
     },
   ];
 

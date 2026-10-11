@@ -4,7 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import { idParam, optionalDate, paging } from '../../lib/http.js';
-import { requireManager } from '../../lib/auth.js';
+import { assertBrandAccess, brandForWrite, brandWhere, requireManager } from '../../lib/auth.js';
 import { expireVouchers, issueVoucher, voucherDiscountAmount } from '../../services/loyalty.js';
 
 export const vouchersRouter = Router();
@@ -25,6 +25,8 @@ const voucherSchema = z.object({
   endDate: optionalDate,
   minTierId: z.number().int().positive().nullable().optional(),
   active: z.boolean().default(true),
+  /** Thương hiệu phát hành (khi tạo từ chế độ xem tất cả thương hiệu) */
+  brandId: z.number().int().positive().optional(),
 });
 
 function checkVoucher(v: Partial<z.infer<typeof voucherSchema>>) {
@@ -37,14 +39,14 @@ vouchersRouter.get('/', async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const type = req.query.type;
   const where: Prisma.VoucherWhereInput = {
-    brandId: req.brand!.id,
+    ...brandWhere(req),
     ...(q ? { title: { contains: q } } : {}),
     ...(type === 'free' ? { pointCost: 0 } : type === 'points' ? { pointCost: { gt: 0 } } : {}),
   };
   const [items, total] = await Promise.all([
     prisma.voucher.findMany({
       where,
-      include: { minTier: true },
+      include: { minTier: true, brand: { select: { id: true, name: true, primaryColor: true } } },
       orderBy: { createdAt: 'desc' },
       skip,
       take,
@@ -70,7 +72,8 @@ vouchersRouter.get('/check', async (req, res) => {
     where: { code },
     include: { voucher: true, customer: { include: { tier: true } }, order: { select: { id: true, code: true } } },
   });
-  if (!cv || cv.brandId !== req.brand!.id) throw notFound('Mã voucher không tồn tại trong thương hiệu này');
+  if (!cv) throw notFound('Mã voucher không tồn tại');
+  assertBrandAccess(req, cv.brandId, 'Mã voucher không tồn tại trong thương hiệu này');
   const valid = cv.status === 'AVAILABLE';
   let reason: string | null = valid ? null : cv.status === 'USED' ? 'Voucher đã được sử dụng' : 'Voucher đã hết hạn';
   if (valid && amount > 0 && amount < cv.voucher.minOrder) reason = `Hoá đơn tối thiểu ${cv.voucher.minOrder.toLocaleString('vi-VN')}đ`;
@@ -84,7 +87,8 @@ vouchersRouter.get('/check', async (req, res) => {
 
 vouchersRouter.get('/:id', async (req, res) => {
   const v = await prisma.voucher.findUnique({ where: { id: idParam(req.params.id) }, include: { minTier: true } });
-  if (!v || v.brandId !== req.brand!.id) throw notFound('Voucher không tồn tại');
+  if (!v) throw notFound('Voucher không tồn tại');
+  assertBrandAccess(req, v.brandId, 'Voucher không tồn tại');
   const stats = await prisma.customerVoucher.groupBy({ by: ['status'], where: { voucherId: v.id }, _count: { _all: true } });
   const recent = await prisma.customerVoucher.findMany({
     where: { voucherId: v.id },
@@ -98,14 +102,17 @@ vouchersRouter.get('/:id', async (req, res) => {
 vouchersRouter.post('/', requireManager, async (req, res) => {
   const data = voucherSchema.parse(req.body);
   checkVoucher(data);
-  res.status(201).json(await prisma.voucher.create({ data: { ...data, brandId: req.brand!.id } }));
+  const brand = await brandForWrite(req, data.brandId);
+  res.status(201).json(await prisma.voucher.create({ data: { ...data, brandId: brand.id } }));
 });
 
 vouchersRouter.put('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
-  const data = voucherSchema.partial().parse(req.body);
+  const { brandId: _ignored, ...data } = voucherSchema.partial().parse(req.body);
   const current = await prisma.voucher.findUnique({ where: { id } });
-  if (!current || current.brandId !== req.brand!.id) throw notFound('Voucher không tồn tại');
+  if (!current) throw notFound('Voucher không tồn tại');
+  assertBrandAccess(req, current.brandId, 'Voucher không tồn tại');
+  await brandForWrite(req, current.brandId);
   checkVoucher({ discountType: current.discountType as 'PERCENT', discountValue: current.discountValue, startDate: current.startDate, endDate: current.endDate, ...data });
   if (data.totalQuantity != null && data.totalQuantity < current.issuedCount) {
     throw badRequest(`Số lượng không được nhỏ hơn số đã phát (${current.issuedCount})`);
@@ -116,7 +123,9 @@ vouchersRouter.put('/:id', requireManager, async (req, res) => {
 vouchersRouter.delete('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
   const v = await prisma.voucher.findUnique({ where: { id } });
-  if (!v || v.brandId !== req.brand!.id) throw notFound('Voucher không tồn tại');
+  if (!v) throw notFound('Voucher không tồn tại');
+  assertBrandAccess(req, v.brandId, 'Voucher không tồn tại');
+  await brandForWrite(req, v.brandId);
   const issued = await prisma.customerVoucher.count({ where: { voucherId: id } });
   if (issued > 0) {
     // Đã phát cho khách → chỉ ngừng hoạt động để giữ lịch sử
@@ -131,14 +140,30 @@ vouchersRouter.delete('/:id', requireManager, async (req, res) => {
 /** Tặng voucher hàng loạt cho danh sách khách hoặc cả 1 hạng */
 vouchersRouter.post('/:id/gift', requireManager, async (req, res) => {
   const body = z
-    .object({ customerIds: z.array(z.number().int().positive()).optional(), tierId: z.number().int().positive().optional() })
-    .refine((b) => b.customerIds?.length || b.tierId, 'Chọn khách hàng hoặc hạng thành viên (khách đã là thành viên của thương hiệu)')
+    .object({
+      customerIds: z.array(z.number().int().positive()).optional(),
+      /** Lọc theo hạng và/hoặc cơ sở khách đã chọn khi đăng ký (khách đã là thành viên của thương hiệu) */
+      tierId: z.number().int().positive().optional(),
+      branchId: z.number().int().positive().optional(),
+    })
+    .refine((b) => b.customerIds?.length || b.tierId || b.branchId, 'Chọn khách hàng, hạng thành viên hoặc cơ sở')
     .parse(req.body);
   const voucherId = idParam(req.params.id);
-  const brandId = req.brand!.id;
+  const v = await prisma.voucher.findUnique({ where: { id: voucherId } });
+  if (!v) throw notFound('Voucher không tồn tại');
+  assertBrandAccess(req, v.brandId, 'Voucher không tồn tại');
+  const brandId = (await brandForWrite(req, v.brandId)).id;
   const ids = body.customerIds?.length
     ? body.customerIds
-    : (await prisma.customer.findMany({ where: { tierId: body.tierId, wallets: { some: { brandId } } }, select: { id: true } })).map((c) => c.id);
+    : (
+        await prisma.customer.findMany({
+          where: {
+            ...(body.tierId ? { tierId: body.tierId } : {}),
+            wallets: { some: { brandId, ...(body.branchId ? { homeBranchId: body.branchId } : {}) } },
+          },
+          select: { id: true },
+        })
+      ).map((c) => c.id);
   let success = 0;
   const errors: { customerId: number; error: string }[] = [];
   for (const customerId of ids) {

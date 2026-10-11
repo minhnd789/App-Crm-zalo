@@ -4,7 +4,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { notFound } from '../../lib/errors.js';
 import { idParam, paging } from '../../lib/http.js';
-import { requireManager } from '../../lib/auth.js';
+import { assertBrandAccess, brandForWrite, brandWhere, requireManager } from '../../lib/auth.js';
+import { badRequest } from '../../lib/errors.js';
 import { cancelOrder, createOrder, orderInclude } from '../../services/orders.js';
 
 export const ordersRouter = Router();
@@ -18,7 +19,7 @@ ordersRouter.get('/', async (req, res) => {
   const from = typeof req.query.from === 'string' && req.query.from ? new Date(req.query.from) : undefined;
   const to = typeof req.query.to === 'string' && req.query.to ? new Date(req.query.to) : undefined;
   const where: Prisma.OrderWhereInput = {
-    brandId: req.brand!.id,
+    ...brandWhere(req),
     ...(customerId ? { customerId } : {}),
     ...(branchId ? { branchId } : {}),
     ...(status ? { status } : {}),
@@ -30,7 +31,12 @@ ordersRouter.get('/', async (req, res) => {
   const [items, total, sum] = await Promise.all([
     prisma.order.findMany({
       where,
-      include: { branch: true, customer: { select: { id: true, name: true, phone: true } }, createdBy: { select: { name: true } } },
+      include: {
+        branch: true,
+        brand: { select: { id: true, name: true, primaryColor: true } },
+        customer: { select: { id: true, name: true, phone: true } },
+        createdBy: { select: { name: true } },
+      },
       orderBy: { createdAt: 'desc' },
       skip,
       take,
@@ -43,7 +49,8 @@ ordersRouter.get('/', async (req, res) => {
 
 ordersRouter.get('/:id', async (req, res) => {
   const o = await prisma.order.findUnique({ where: { id: idParam(req.params.id) }, include: orderInclude });
-  if (!o || o.brandId !== req.brand!.id) throw notFound('Hoá đơn không tồn tại');
+  if (!o) throw notFound('Hoá đơn không tồn tại');
+  assertBrandAccess(req, o.brandId, 'Hoá đơn không tồn tại');
   res.json(o);
 });
 
@@ -56,7 +63,8 @@ const itemSchema = z.object({
 const createSchema = z
   .object({
     customerId: z.number().int().positive(),
-    branchId: z.number().int().positive().nullable().optional(),
+    /** Cơ sở xuất hoá đơn – xác định thương hiệu tích điểm */
+    branchId: z.number().int().positive(),
     bookingId: z.number().int().positive().nullable().optional(),
     items: z.array(itemSchema).default([]),
     /** Dùng khi không nhập từng món – chỉ nhập tổng tiền từ máy POS */
@@ -69,9 +77,17 @@ const createSchema = z
 
 ordersRouter.post('/', async (req, res) => {
   const body = createSchema.parse(req.body);
-  res.status(201).json(await createOrder(req.brand!, body, req.admin!.id));
+  const branch = await prisma.branch.findUnique({ where: { id: body.branchId } });
+  if (!branch) throw badRequest('Cơ sở không tồn tại');
+  const brand = await brandForWrite(req, branch.brandId);
+  res.status(201).json(await createOrder(brand, body, req.admin!.id));
 });
 
 ordersRouter.post('/:id/cancel', requireManager, async (req, res) => {
-  res.json(await cancelOrder(req.brand!.id, idParam(req.params.id), req.admin!.id));
+  const id = idParam(req.params.id);
+  const o = await prisma.order.findUnique({ where: { id } });
+  if (!o) throw notFound('Hoá đơn không tồn tại');
+  assertBrandAccess(req, o.brandId, 'Hoá đơn không tồn tại');
+  await brandForWrite(req, o.brandId);
+  res.json(await cancelOrder(o.brandId, id, req.admin!.id));
 });

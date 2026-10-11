@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { prisma } from '../../db.js';
+import { brandWhere } from '../../lib/auth.js';
 
-/** Số liệu tổng quan của thương hiệu đang chọn */
+/** Số liệu tổng quan: 1 thương hiệu (X-Brand-Id) hoặc toàn hệ thống; lọc thêm theo cơ sở `?branchId=` */
 export const dashboardRouter = Router();
 
 const startOfDayVN = (d = new Date()) => {
@@ -12,14 +13,19 @@ const startOfDayVN = (d = new Date()) => {
 };
 
 dashboardRouter.get('/', async (req, res) => {
-  const brandId = req.brand!.id;
+  const bw = brandWhere(req);
+  const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+  // Lọc theo cơ sở: hoá đơn/đặt bàn tại cơ sở; khách theo cơ sở đã chọn khi đăng ký
+  const bb = { ...bw, ...(branchId ? { branchId } : {}) };
+  const wb = { ...bw, ...(branchId ? { homeBranchId: branchId } : {}) };
   const today = startOfDayVN();
   const tomorrow = new Date(today.getTime() + 86400_000);
   // 00:00 ngày 1 của tháng hiện tại theo giờ VN
   const vnNow = new Date(Date.now() + 7 * 3600_000);
   const monthStart = new Date(Date.UTC(vnNow.getUTCFullYear(), vnNow.getUTCMonth(), 1) - 7 * 3600_000);
   const days30 = new Date(today.getTime() - 29 * 86400_000);
-  const members = { wallets: { some: { brandId } } };
+  const members = { wallets: { some: wb } };
+  const brandFiltered = !!req.brand || !!branchId;
 
   const [
     totalCustomers,
@@ -34,30 +40,41 @@ dashboardRouter.get('/', async (req, res) => {
     orders30,
     vouchersUsedMonth,
   ] = await Promise.all([
-    prisma.customerWallet.count({ where: { brandId } }),
-    prisma.customerWallet.count({ where: { brandId, createdAt: { gte: today } } }),
-    prisma.booking.count({ where: { brandId, bookingTime: { gte: today, lt: tomorrow }, status: { not: 'CANCELLED' } } }),
-    prisma.booking.count({ where: { brandId, status: 'PENDING' } }),
-    prisma.order.aggregate({ where: { brandId, status: 'COMPLETED', createdAt: { gte: today } }, _sum: { total: true }, _count: true }),
-    prisma.order.aggregate({ where: { brandId, status: 'COMPLETED', createdAt: { gte: monthStart } }, _sum: { total: true }, _count: true }),
-    prisma.tier.findMany({ orderBy: { minSpent: 'asc' }, include: { _count: { select: { customers: { where: members } } } } }),
+    brandFiltered ? prisma.customerWallet.count({ where: wb }) : prisma.customer.count(),
+    brandFiltered
+      ? prisma.customerWallet.count({ where: { ...wb, createdAt: { gte: today } } })
+      : prisma.customer.count({ where: { createdAt: { gte: today } } }),
+    prisma.booking.count({ where: { ...bb, bookingTime: { gte: today, lt: tomorrow }, status: { not: 'CANCELLED' } } }),
+    prisma.booking.count({ where: { ...bb, status: 'PENDING' } }),
+    prisma.order.aggregate({ where: { ...bb, status: 'COMPLETED', createdAt: { gte: today } }, _sum: { total: true }, _count: true }),
+    prisma.order.aggregate({ where: { ...bb, status: 'COMPLETED', createdAt: { gte: monthStart } }, _sum: { total: true }, _count: true }),
+    prisma.tier.findMany({
+      orderBy: { minSpent: 'asc' },
+      include: { _count: { select: { customers: brandFiltered ? { where: members } : true } } },
+    }),
     prisma.order.findMany({
-      where: { brandId, status: 'COMPLETED' },
+      where: { ...bb, status: 'COMPLETED' },
       orderBy: { createdAt: 'desc' },
       take: 8,
-      include: { customer: { select: { id: true, name: true, phone: true } } },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        brand: { select: { id: true, name: true, primaryColor: true } },
+        branch: { select: { id: true, name: true } },
+      },
     }),
     prisma.booking.findMany({
-      where: { brandId, bookingTime: { gte: new Date() }, status: { in: ['PENDING', 'CONFIRMED'] } },
+      where: { ...bb, bookingTime: { gte: new Date() }, status: { in: ['PENDING', 'CONFIRMED'] } },
       orderBy: { bookingTime: 'asc' },
       take: 8,
-      include: { branch: { select: { name: true } } },
+      include: { branch: { select: { name: true } }, brand: { select: { id: true, name: true, primaryColor: true } } },
     }),
     prisma.order.findMany({
-      where: { brandId, status: 'COMPLETED', createdAt: { gte: days30 } },
+      where: { ...bb, status: 'COMPLETED', createdAt: { gte: days30 } },
       select: { total: true, createdAt: true },
     }),
-    prisma.customerVoucher.count({ where: { brandId, status: 'USED', usedAt: { gte: monthStart } } }),
+    prisma.customerVoucher.count({
+      where: { ...bw, status: 'USED', usedAt: { gte: monthStart }, ...(branchId ? { order: { branchId } } : {}) },
+    }),
   ]);
 
   // Doanh thu 30 ngày theo ngày (giờ VN)
@@ -75,7 +92,28 @@ dashboardRouter.get('/', async (req, res) => {
     }
   }
 
+  // Doanh thu tháng theo thương hiệu (khi xem toàn hệ thống) và theo cơ sở
+  const monthWhere = { ...bb, status: 'COMPLETED', createdAt: { gte: monthStart } };
+  const [byBrandRaw, byBranchRaw, brands, branches] = await Promise.all([
+    prisma.order.groupBy({ by: ['brandId'], where: monthWhere, _sum: { total: true }, _count: true }),
+    prisma.order.groupBy({ by: ['branchId'], where: monthWhere, _sum: { total: true }, _count: true }),
+    prisma.brand.findMany({ where: req.brand ? { id: req.brand.id } : {}, select: { id: true, name: true, primaryColor: true } }),
+    prisma.branch.findMany({ where: bw, select: { id: true, name: true, brandId: true } }),
+  ]);
+  const revenueByBrand = brands.map((b) => {
+    const r = byBrandRaw.find((x) => x.brandId === b.id);
+    return { ...b, revenue: r?._sum.total ?? 0, orders: r?._count ?? 0 };
+  });
+  const revenueByBranch = branches
+    .map((b) => {
+      const r = byBranchRaw.find((x) => x.branchId === b.id);
+      return { ...b, brandName: brands.find((x) => x.id === b.brandId)?.name ?? '', revenue: r?._sum.total ?? 0, orders: r?._count ?? 0 };
+    })
+    .sort((a, b) => b.revenue - a.revenue);
+
   res.json({
+    revenueByBrand,
+    revenueByBranch,
     totalCustomers,
     newCustomersToday,
     bookingsToday,

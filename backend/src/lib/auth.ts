@@ -3,7 +3,7 @@ import type { Brand } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { prisma } from '../db.js';
-import { badRequest, forbidden, unauthorized } from './errors.js';
+import { badRequest, forbidden, notFound, unauthorized } from './errors.js';
 
 export interface AdminPrincipal {
   id: number;
@@ -97,28 +97,46 @@ export const requireAdmin: RequestHandler = async (req, _res, next) => {
 };
 
 /**
- * Xác định thương hiệu đang thao tác qua header `X-Brand-Id`.
- * Tài khoản thuộc 1 thương hiệu luôn bị giới hạn trong thương hiệu đó.
- * `required = false`: không có header thì để trống (dùng cho dữ liệu dùng chung như khách hàng).
+ * Bộ lọc thương hiệu của trang quản trị trung tâm qua header `X-Brand-Id`.
+ * - Không gửi header (tài khoản toàn hệ thống) → xem dữ liệu TẤT CẢ thương hiệu (`req.brand` để trống).
+ * - Tài khoản gắn 1 thương hiệu luôn bị giới hạn trong thương hiệu đó.
  */
-export const adminBrand =
-  (required = true): RequestHandler =>
-  async (req, _res, next) => {
-    const raw = req.header('x-brand-id');
-    const own = req.admin!.brandId;
-    let brandId = raw ? Number(raw) : own;
-    if (raw && (!Number.isInteger(brandId) || brandId! <= 0)) throw badRequest('X-Brand-Id không hợp lệ');
-    if (own !== null && brandId !== own) throw forbidden('Bạn chỉ được thao tác trong thương hiệu của mình');
-    if (brandId == null) {
-      if (required) throw badRequest('Vui lòng chọn thương hiệu');
-      next();
-      return;
-    }
+export const adminBrand: RequestHandler = async (req, _res, next) => {
+  const raw = req.header('x-brand-id');
+  const own = req.admin!.brandId;
+  const brandId = raw ? Number(raw) : own;
+  if (raw && (!Number.isInteger(brandId) || brandId! <= 0)) throw badRequest('X-Brand-Id không hợp lệ');
+  if (own !== null && brandId !== own) throw forbidden('Bạn chỉ được thao tác trong thương hiệu của mình');
+  if (brandId != null) {
     const brand = await prisma.brand.findUnique({ where: { id: brandId } });
     if (!brand) throw badRequest('Thương hiệu không tồn tại');
     req.brand = brand;
-    next();
-  };
+  }
+  next();
+};
+
+/** Điều kiện lọc Prisma theo thương hiệu đang lọc (rỗng = mọi thương hiệu) */
+export const brandWhere = (req: Request) => (req.brand ? { brandId: req.brand.id } : {});
+
+/** Bản ghi phải thuộc thương hiệu đang lọc (nếu có), nếu không coi như không tồn tại */
+export function assertBrandAccess(req: Request, brandId: number, msg = 'Không tìm thấy dữ liệu') {
+  if (req.brand && req.brand.id !== brandId) throw notFound(msg);
+}
+
+/**
+ * Thương hiệu dùng khi tạo mới dữ liệu: lấy từ body `brandId` hoặc bộ lọc đang chọn.
+ * Tài khoản gắn thương hiệu chỉ tạo được trong thương hiệu mình.
+ */
+export async function brandForWrite(req: Request, bodyBrandId?: number | null): Promise<Brand> {
+  if (req.brand) {
+    if (bodyBrandId && bodyBrandId !== req.brand.id) throw forbidden('Bạn chỉ được thao tác trong thương hiệu đang chọn');
+    return req.brand;
+  }
+  if (!bodyBrandId) throw badRequest('Vui lòng chọn thương hiệu');
+  const brand = await prisma.brand.findUnique({ where: { id: bodyBrandId } });
+  if (!brand) throw badRequest('Thương hiệu không tồn tại');
+  return brand;
+}
 
 /** Quản lý (role ADMIN) – của thương hiệu hoặc toàn hệ thống */
 export const requireManager: RequestHandler = (req, _res, next) => {

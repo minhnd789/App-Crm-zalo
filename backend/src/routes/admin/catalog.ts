@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../../db.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import { idParam, optionalDate } from '../../lib/http.js';
-import { requireManager, requireSuperAdmin } from '../../lib/auth.js';
+import type { Request } from 'express';
+import { assertBrandAccess, brandForWrite, brandWhere, requireManager, requireSuperAdmin } from '../../lib/auth.js';
 import { tierForSpent } from '../../services/loyalty.js';
 
 // ---------- Chương trình ưu đãi (theo thương hiệu) ----------
@@ -20,25 +21,34 @@ const promotionSchema = z.object({
   active: z.boolean().default(true),
 });
 
-async function ownPromotion(id: number, brandId: number) {
+async function ownPromotion(req: Request, id: number) {
   const p = await prisma.promotion.findUnique({ where: { id } });
-  if (!p || p.brandId !== brandId) throw notFound('Chương trình không tồn tại');
+  if (!p) throw notFound('Chương trình không tồn tại');
+  assertBrandAccess(req, p.brandId, 'Chương trình không tồn tại');
+  await brandForWrite(req, p.brandId);
 }
 
+const brandSel = { brand: { select: { id: true, name: true, primaryColor: true } } } as const;
+const bodyBrandId = (body: unknown) => {
+  const v = (body as { brandId?: unknown } | undefined)?.brandId;
+  return typeof v === 'number' ? v : undefined;
+};
+
 promotionsRouter.get('/', async (req, res) => {
-  res.json(await prisma.promotion.findMany({ where: { brandId: req.brand!.id }, orderBy: { createdAt: 'desc' } }));
+  res.json(await prisma.promotion.findMany({ where: brandWhere(req), include: brandSel, orderBy: { createdAt: 'desc' } }));
 });
 promotionsRouter.post('/', requireManager, async (req, res) => {
-  res.status(201).json(await prisma.promotion.create({ data: { ...promotionSchema.parse(req.body), brandId: req.brand!.id } }));
+  const brand = await brandForWrite(req, bodyBrandId(req.body));
+  res.status(201).json(await prisma.promotion.create({ data: { ...promotionSchema.parse(req.body), brandId: brand.id } }));
 });
 promotionsRouter.put('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
-  await ownPromotion(id, req.brand!.id);
+  await ownPromotion(req, id);
   res.json(await prisma.promotion.update({ where: { id }, data: promotionSchema.partial().parse(req.body) }));
 });
 promotionsRouter.delete('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
-  await ownPromotion(id, req.brand!.id);
+  await ownPromotion(req, id);
   await prisma.promotion.delete({ where: { id } });
   res.json({ deleted: true });
 });
@@ -57,26 +67,38 @@ const branchSchema = z.object({
   active: z.boolean().default(true),
 });
 
-async function ownBranch(id: number, brandId: number) {
+async function ownBranch(req: Request, id: number) {
   const b = await prisma.branch.findUnique({ where: { id } });
-  if (!b || b.brandId !== brandId) throw notFound('Chi nhánh không tồn tại');
+  if (!b) throw notFound('Cơ sở không tồn tại');
+  assertBrandAccess(req, b.brandId, 'Cơ sở không tồn tại');
+  await brandForWrite(req, b.brandId);
 }
 
 branchesRouter.get('/', async (req, res) => {
-  res.json(await prisma.branch.findMany({ where: { brandId: req.brand!.id }, orderBy: { id: 'asc' } }));
+  res.json(
+    await prisma.branch.findMany({
+      where: brandWhere(req),
+      include: { ...brandSel, _count: { select: { members: true } } },
+      orderBy: [{ brandId: 'asc' }, { id: 'asc' }],
+    }),
+  );
 });
 branchesRouter.post('/', requireManager, async (req, res) => {
-  res.status(201).json(await prisma.branch.create({ data: { ...branchSchema.parse(req.body), brandId: req.brand!.id } }));
+  const brand = await brandForWrite(req, bodyBrandId(req.body));
+  res.status(201).json(await prisma.branch.create({ data: { ...branchSchema.parse(req.body), brandId: brand.id } }));
 });
 branchesRouter.put('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
-  await ownBranch(id, req.brand!.id);
+  await ownBranch(req, id);
   res.json(await prisma.branch.update({ where: { id }, data: branchSchema.partial().parse(req.body) }));
 });
 branchesRouter.delete('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
-  await ownBranch(id, req.brand!.id);
-  const used = (await prisma.booking.count({ where: { branchId: id } })) + (await prisma.order.count({ where: { branchId: id } }));
+  await ownBranch(req, id);
+  const used =
+    (await prisma.booking.count({ where: { branchId: id } })) +
+    (await prisma.order.count({ where: { branchId: id } })) +
+    (await prisma.customerWallet.count({ where: { homeBranchId: id } }));
   if (used > 0) {
     await prisma.branch.update({ where: { id }, data: { active: false } });
     res.json({ deleted: false, deactivated: true });

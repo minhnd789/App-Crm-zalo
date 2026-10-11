@@ -34,6 +34,8 @@ let branchB = 0;
 let orderWithVoucher = 0;
 
 const admin = (brandId: number) => ({ Authorization: `Bearer ${adminToken}`, 'X-Brand-Id': String(brandId) });
+/** Quản trị trung tâm – không lọc thương hiệu (xem tất cả) */
+const central = () => ({ Authorization: `Bearer ${adminToken}` });
 const appA = () => ({ Authorization: `Bearer ${tokenA}`, 'X-Brand': 'BRAND_A' });
 const appB = () => ({ Authorization: `Bearer ${tokenB}`, 'X-Brand': 'BRAND_B' });
 
@@ -68,14 +70,15 @@ test('Mini App bắt buộc header X-Brand hợp lệ', async () => {
   assert.equal(cfg.body.brand.name, 'Lẩu Nướng Vui');
 });
 
-test('đăng nhập lần đầu ở thương hiệu A: điểm chào mừng vào ví A, hạng mặc định', async () => {
+test('đăng nhập lần đầu ở thương hiệu A: chưa là thành viên, hạng mặc định', async () => {
   const res = await request(app)
     .post('/api/app/auth/login')
     .set('X-Brand', 'BRAND_A')
     .send({ mockZaloId: 'zalo-a-1', name: 'Nguyễn Văn A' });
   assert.equal(res.status, 200);
   assert.equal(res.body.isNew, true);
-  assert.equal(res.body.customer.points, 50);
+  assert.equal(res.body.customer.registered, false);
+  assert.equal(res.body.customer.points, 0, 'điểm chào mừng chỉ tặng khi hoàn tất đăng ký');
   assert.equal(res.body.customer.tier.code, 'MEMBER');
   assert.equal(res.body.customer.nextTier.code, 'SILVER');
   assert.equal(res.body.customer.amountToNextTier, 5_000_000);
@@ -85,7 +88,7 @@ test('đăng nhập lần đầu ở thương hiệu A: điểm chào mừng và
 
   const again = await request(app).post('/api/app/auth/login').set('X-Brand', 'BRAND_A').send({ mockZaloId: 'zalo-a-1' });
   assert.equal(again.body.isNew, false);
-  assert.equal(again.body.customer.points, 50, 'không được tặng điểm chào mừng lần 2');
+  assert.equal(again.body.customer.id, customerId);
 });
 
 test('token của thương hiệu A không dùng được ở Mini App thương hiệu B', async () => {
@@ -94,11 +97,32 @@ test('token của thương hiệu A không dùng được ở Mini App thương 
   assert.equal(cross.status, 401);
 });
 
-test('liên kết số điện thoại', async () => {
-  const res = await request(app).post('/api/app/me/phone').set(appA()).send({ phone: '+84 901 234 567' });
-  assert.equal(res.status, 200);
+test('chưa đăng ký thì chưa được đặt bàn / nhận voucher', async () => {
+  const booking = await request(app)
+    .post('/api/app/bookings')
+    .set(appA())
+    .send({ branchId: branchA, bookingTime: lunchInTwoDays(), partySize: 2, contactName: 'A', contactPhone: '0901234567' });
+  assert.equal(booking.status, 403);
+  const free = (await request(app).get('/api/app/vouchers?type=free').set(appA())).body[0];
+  assert.equal((await request(app).post(`/api/app/vouchers/${free.id}/claim`).set(appA())).status, 403);
+});
+
+test('đăng ký thành viên: tên & SĐT theo Zalo, ngày sinh, cơ sở → tặng điểm chào mừng', async () => {
+  const base = { name: 'Nguyễn Văn A', birthday: '1990-10-20', phone: '+84 901 234 567' };
+  assert.equal((await request(app).post('/api/app/me/register').set(appA()).send({ ...base, branchId: branchB })).status, 400, 'cơ sở phải thuộc thương hiệu');
+  assert.equal((await request(app).post('/api/app/me/register').set(appA()).send({ ...base, birthday: '2999-01-01', branchId: branchA })).status, 400);
+  const res = await request(app).post('/api/app/me/register').set(appA()).send({ ...base, branchId: branchA });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.registered, true);
   assert.equal(res.body.phone, '0901234567');
+  assert.equal(res.body.homeBranch.name, 'Quận 1');
+  assert.equal(res.body.points, 50);
   assert.equal(res.body.merged, false);
+  assert.equal(res.body.birthday.slice(0, 10), '1990-10-20');
+
+  // Đăng ký lại (vd đổi cơ sở) không tặng thêm điểm
+  const again = await request(app).post('/api/app/me/register').set(appA()).send({ ...base, branchId: branchA });
+  assert.equal(again.body.points, 50);
 });
 
 test('đặt bàn chỉ ở chi nhánh của thương hiệu, nhân viên xác nhận', async () => {
@@ -180,21 +204,23 @@ test('hoá đơn ở thương hiệu A: dùng voucher, cộng điểm ví A, c�
 
   // Chi nhánh / voucher của thương hiệu khác bị từ chối
   const wrong = await request(app).post('/api/admin/orders').set(admin(brandA)).send({ customerId, branchId: branchB, subtotal: 100_000 });
-  assert.equal(wrong.status, 400);
+  assert.equal(wrong.status, 403, 'đang lọc thương hiệu A thì không xuất hoá đơn ở cơ sở của B');
 });
 
-test('dùng Mini App thương hiệu B rồi liên kết cùng SĐT → gộp thành 1 khách', async () => {
+test('dùng Mini App thương hiệu B, đăng ký cùng SĐT → gộp thành 1 khách', async () => {
   const login = await request(app)
     .post('/api/app/auth/login')
     .set('X-Brand', 'BRAND_B')
     .send({ mockZaloId: 'zalo-b-1', name: 'Văn A' });
   assert.equal(login.body.isNew, true);
   assert.notEqual(login.body.customer.id, customerId);
-  assert.equal(login.body.customer.points, 50, 'điểm chào mừng của thương hiệu B');
   const oldTokenB = login.body.token;
   tokenB = oldTokenB;
 
-  const link = await request(app).post('/api/app/me/phone').set(appB()).send({ phone: '0901234567' });
+  const link = await request(app)
+    .post('/api/app/me/register')
+    .set(appB())
+    .send({ name: 'Nguyễn Văn A', birthday: '1990-10-20', branchId: branchB, phone: '0901234567' });
   assert.equal(link.status, 200, JSON.stringify(link.body));
   assert.equal(link.body.merged, true);
   assert.equal(link.body.id, customerId);
@@ -205,7 +231,9 @@ test('dùng Mini App thương hiệu B rồi liên kết cùng SĐT → gộp th
   assert.equal((await request(app).get('/api/app/me').set({ Authorization: `Bearer ${oldTokenB}`, 'X-Brand': 'BRAND_B' })).status, 401);
 
   const meB = (await request(app).get('/api/app/me').set(appB())).body;
-  assert.equal(meB.points, 50, 'điểm ví B riêng');
+  assert.equal(meB.points, 50, 'điểm chào mừng riêng của ví B');
+  assert.equal(meB.registered, true);
+  assert.equal(meB.homeBranch.name, 'Quận 3');
   assert.equal(meB.tier.code, 'SILVER', 'hạng chung theo chi tiêu ở A');
   assert.equal(meB.otherWallets[0].points, 605);
 
@@ -241,7 +269,7 @@ test('voucher của thương hiệu A không áp được cho hoá đơn thươn
   const res = await request(app)
     .post('/api/admin/orders')
     .set(admin(brandB))
-    .send({ customerId, subtotal: 500_000, voucherCode: claim.body.code });
+    .send({ customerId, branchId: branchB, subtotal: 500_000, voucherCode: claim.body.code });
   assert.equal(res.status, 400);
   assert.match(res.body.error, /thương hiệu/);
 });
@@ -328,4 +356,50 @@ test('dashboard theo thương hiệu', async () => {
   assert.equal(b.ordersToday, 1);
   assert.equal(b.revenueToday, 1_000_000);
   assert.equal(a.revenueByDay.length, 30);
+});
+
+test('quản trị trung tâm: xem tất cả thương hiệu và lọc theo thương hiệu / cơ sở', async () => {
+  const all = (await request(app).get('/api/admin/orders').set(central())).body;
+  assert.deepEqual([...new Set(all.items.map((o: any) => o.brand.name))].sort(), ['Lẩu Nướng Vui', 'Nhà hàng Ngon']);
+  assert.equal((await request(app).get('/api/admin/orders').set(admin(brandB))).body.total, 1);
+  assert.equal((await request(app).get(`/api/admin/orders?branchId=${branchB}`).set(central())).body.total, 1);
+
+  const branches = (await request(app).get('/api/admin/branches').set(central())).body;
+  assert.equal(branches.length, 4);
+  assert.ok(branches.every((b: any) => b.brand?.name));
+
+  // Dashboard toàn hệ thống có doanh thu theo thương hiệu và theo cơ sở
+  const dash = (await request(app).get('/api/admin/dashboard').set(central())).body;
+  assert.equal(dash.revenueByBrand.length, 2);
+  assert.equal(dash.totalCustomers, 1);
+  assert.ok(dash.revenueByBranch.find((b: any) => b.id === branchB).revenue > 0);
+
+  // Khách lọc theo cơ sở đăng ký, tháng sinh, trạng thái đăng ký
+  const byBranch = (await request(app).get(`/api/admin/customers?branchId=${branchA}`).set(central())).body;
+  assert.equal(byBranch.total, 1);
+  assert.equal(byBranch.items[0].wallets.length, 2, 'xem toàn hệ thống thấy ví mọi thương hiệu');
+  assert.equal((await request(app).get(`/api/admin/customers?birthMonth=10`).set(central())).body.total, 1);
+  assert.equal((await request(app).get(`/api/admin/customers?birthMonth=3`).set(central())).body.total, 0);
+  assert.equal((await request(app).get(`/api/admin/customers?registered=false`).set(central())).body.total, 0);
+
+  // Tạo dữ liệu ở chế độ tất cả thương hiệu phải chỉ rõ thương hiệu
+  const noBrand = await request(app).post('/api/admin/promotions').set(central()).send({ title: 'KM' });
+  assert.equal(noBrand.status, 400);
+  const promo = await request(app).post('/api/admin/promotions').set(central()).send({ title: 'KM B', brandId: brandB });
+  assert.equal(promo.body.brandId, brandB);
+  // Hoá đơn ở chế độ tất cả: thương hiệu lấy theo cơ sở
+  const order = await request(app).post('/api/admin/orders').set(central()).send({ customerId, branchId: branchB, subtotal: 200_000 });
+  assert.equal(order.status, 201);
+  assert.equal(order.body.order.brandId, brandB);
+  // Lookup cần thương hiệu
+  assert.equal((await request(app).get('/api/admin/customers/lookup?q=0901234567').set(central())).status, 400);
+  assert.equal((await request(app).get(`/api/admin/customers/lookup?q=0901234567&brandId=${brandB}`).set(central())).status, 200);
+});
+
+test('tặng voucher theo cơ sở khách đã đăng ký', async () => {
+  const v = (await request(app).get('/api/admin/vouchers').set(admin(brandB))).body.items.find((x: any) => x.discountType === 'GIFT');
+  const r = await request(app).post(`/api/admin/vouchers/${v.id}/gift`).set(central()).send({ branchId: branchB });
+  assert.equal(r.body.success, 1);
+  const none = await request(app).post(`/api/admin/vouchers/${v.id}/gift`).set(central()).send({ branchId: branchB + 1 });
+  assert.equal(none.body.success, 0, 'cơ sở Thủ Đức chưa có khách đăng ký');
 });

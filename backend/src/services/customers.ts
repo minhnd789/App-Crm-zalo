@@ -15,8 +15,9 @@ export interface ZaloLogin {
 
 /**
  * Tìm hoặc tạo khách theo tài khoản Zalo của Mini App thương hiệu.
- * Lần đầu vào Mini App của 1 thương hiệu: tạo khách mới (sẽ gộp với khách cũ khi liên kết SĐT)
- * và tặng điểm chào mừng của thương hiệu.
+ * Lần đầu vào Mini App của 1 thương hiệu: tạo khách mới (chưa đăng ký thành viên).
+ * Khách hoàn tất đăng ký (SĐT, ngày sinh, cơ sở) qua `registerMember` – lúc đó mới tặng điểm chào mừng
+ * và gộp với hồ sơ cũ nếu SĐT đã là thành viên.
  */
 export async function loginWithZalo(tx: Tx, brand: Brand, login: ZaloLogin) {
   const account = await tx.customerZaloAccount.findUnique({
@@ -50,17 +51,64 @@ export async function loginWithZalo(tx: Tx, brand: Brand, login: ZaloLogin) {
       wallets: { create: { brandId: brand.id } },
     },
   });
-  const welcome = await getNumberSetting(brand.id, 'welcomePoints');
-  if (welcome > 0) {
-    await changePoints(tx, {
-      customerId: customer.id,
-      brandId: brand.id,
-      points: welcome,
-      type: 'WELCOME',
-      description: `Quà chào mừng thành viên mới ${brand.name}`,
-    });
-  }
   return { customerId: customer.id, isNew: true };
+}
+
+export interface RegisterInput {
+  name: string;
+  phone: string;
+  birthday: Date;
+  branchId: number;
+}
+
+/**
+ * Đăng ký thành viên tại thương hiệu: lưu tên, SĐT (từ Zalo), ngày sinh, cơ sở hay đến.
+ * Nếu SĐT đã là thành viên (đăng ký ở thương hiệu khác hoặc được nhân viên tạo hoá đơn)
+ * thì gộp tài khoản hiện tại vào hồ sơ đó. Tặng điểm chào mừng 1 lần cho mỗi thương hiệu.
+ * Trả về id khách cuối cùng (khác `customerId` nếu đã gộp).
+ */
+export async function registerMember(tx: Tx, brand: Brand, customerId: number, input: RegisterInput) {
+  const branch = await tx.branch.findUnique({ where: { id: input.branchId } });
+  if (!branch || branch.brandId !== brand.id || !branch.active) throw badRequest('Cơ sở không hợp lệ');
+
+  let finalId = customerId;
+  const owner = await tx.customer.findUnique({ where: { phone: input.phone } });
+  if (owner && owner.id !== customerId) {
+    const current = await tx.customer.findUniqueOrThrow({ where: { id: customerId } });
+    if (current.phone && current.phone !== input.phone) {
+      throw badRequest('Tài khoản đã liên kết số điện thoại khác, vui lòng liên hệ nhà hàng');
+    }
+    await mergeCustomers(tx, customerId, owner.id);
+    finalId = owner.id;
+  }
+
+  await tx.customer.update({
+    where: { id: finalId },
+    data: { name: input.name, phone: input.phone, birthday: input.birthday },
+  });
+  const wallet = await tx.customerWallet.upsert({
+    where: { customerId_brandId: { customerId: finalId, brandId: brand.id } },
+    create: { customerId: finalId, brandId: brand.id },
+    update: {},
+  });
+  const firstTime = !wallet.registeredAt;
+  await tx.customerWallet.update({
+    where: { id: wallet.id },
+    data: { homeBranchId: branch.id, ...(firstTime ? { registeredAt: new Date() } : {}) },
+  });
+  if (firstTime) {
+    const welcome = await getNumberSetting(brand.id, 'welcomePoints');
+    if (welcome > 0) {
+      await changePoints(tx, {
+        customerId: finalId,
+        brandId: brand.id,
+        points: welcome,
+        type: 'WELCOME',
+        description: `Quà chào mừng thành viên mới ${brand.name}`,
+      });
+    }
+  }
+  return { customerId: finalId, merged: finalId !== customerId, firstTime };
 }
 
 /**
@@ -88,6 +136,8 @@ export async function mergeCustomers(tx: Tx, sourceId: number, targetId: number)
       await tx.customerWallet.update({
         where: { id: existing.id },
         data: {
+          homeBranchId: existing.homeBranchId ?? w.homeBranchId,
+          registeredAt: minDate(existing.registeredAt, w.registeredAt),
           points: { increment: w.points },
           lifetimePoints: { increment: w.lifetimePoints },
           totalSpent: { increment: w.totalSpent },
@@ -121,6 +171,12 @@ export async function mergeCustomers(tx: Tx, sourceId: number, targetId: number)
     },
   });
   await recomputeTier(tx, targetId);
+}
+
+function minDate(a: Date | null, b: Date | null) {
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;
 }
 
 function maxDate(a: Date | null, b: Date | null) {

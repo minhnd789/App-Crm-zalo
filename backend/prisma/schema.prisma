@@ -65,7 +65,7 @@ model Admin {
   pointTransactions PointTransaction[]
 }
 
-// Chi nhánh nhà hàng (thuộc 1 thương hiệu)
+// Cơ sở / chi nhánh nhà hàng (thuộc 1 thương hiệu), đặt tên theo vị trí, vd "Quận 1"
 model Branch {
   id        Int      @id @default(autoincrement())
   brandId   Int
@@ -82,6 +82,7 @@ model Branch {
 
   bookings Booking[]
   orders   Order[]
+  members  CustomerWallet[]
 }
 
 // Hạng thành viên – dùng chung mọi thương hiệu. Đạt hạng khi tổng chi tiêu >= minSpent
@@ -144,13 +145,16 @@ model CustomerZaloAccount {
   @@unique([customerId, brandId])
 }
 
-// Ví điểm của khách tại từng thương hiệu
+// Ví điểm / tư cách thành viên của khách tại từng thương hiệu
 model CustomerWallet {
   id             Int       @id @default(autoincrement())
   customerId     Int
   customer       Customer  @relation(fields: [customerId], references: [id])
   brandId        Int
   brand          Brand     @relation(fields: [brandId], references: [id])
+  homeBranchId   Int? // cơ sở khách chọn khi đăng ký – dùng phân loại khách
+  homeBranch     Branch?   @relation(fields: [homeBranchId], references: [id])
+  registeredAt   DateTime? // thời điểm khách hoàn tất đăng ký thành viên trên Mini App của thương hiệu
   points         Int       @default(0) // điểm hiện có (đổi ưu đãi)
   lifetimePoints Int       @default(0) // tổng điểm đã tích tại thương hiệu
   totalSpent     Int       @default(0) // chi tiêu tại thương hiệu
@@ -160,6 +164,7 @@ model CustomerWallet {
   updatedAt      DateTime  @updatedAt
 
   @@unique([customerId, brandId])
+  @@index([brandId, homeBranchId])
 }
 
 // Lịch sử biến động điểm
