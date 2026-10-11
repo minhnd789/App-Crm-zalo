@@ -36,3 +36,14 @@ export const phoneSchema = z
   .trim()
   .transform((v) => v.replace(/[\s.-]/g, '').replace(/^\+?84/, '0'))
   .pipe(z.string().regex(/^0\d{9,10}$/, 'Số điện thoại không hợp lệ'));
+
+/**
+ * Schema cho API cập nhật (PUT): mọi trường tuỳ chọn và KHÔNG áp giá trị mặc định
+ * (zod 4 vẫn điền `.default()` trong `.partial()` → cập nhật 1 trường sẽ ghi đè các trường khác về mặc định).
+ */
+export function updateSchemaOf<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
+  const shape = Object.fromEntries(
+    Object.entries(schema.shape).map(([k, v]) => [k, v instanceof z.ZodDefault ? v.unwrap() : v]),
+  );
+  return z.object(shape).partial() as unknown as ReturnType<z.ZodObject<T>['partial']>;
+}

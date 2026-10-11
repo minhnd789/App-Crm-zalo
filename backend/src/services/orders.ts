@@ -18,6 +18,13 @@ export interface CreateOrderInput {
   /** Đồng bộ từ phần mềm bán hàng (POS) – dùng sau này cho r_keeper */
   source?: 'ADMIN' | 'POS';
   externalId?: string | null;
+  /**
+   * Bill từ POS: giảm giá (kể cả voucher) đã được POS tính sẵn trong `discount`.
+   * Khi true, voucher chỉ được đánh dấu đã dùng, không tính lại số tiền giảm / điều kiện đơn tối thiểu.
+   */
+  discountsAppliedByPos?: boolean;
+  /** Thời điểm thanh toán bên POS */
+  paidAt?: Date;
 }
 
 const vnd = (n: number) => n.toLocaleString('vi-VN') + 'đ';
@@ -45,7 +52,13 @@ export async function createOrder(brand: Brand, input: CreateOrderInput, adminId
     }
 
     const itemsTotal = input.items.reduce((s, i) => s + i.quantity * i.price, 0);
-    const subtotal = input.items.length > 0 ? itemsTotal : (input.subtotal ?? 0);
+    // Bill POS: tổng tiền do POS gửi là chuẩn (món chỉ để lưu chi tiết)
+    const subtotal =
+      input.discountsAppliedByPos && input.subtotal !== undefined
+        ? input.subtotal
+        : input.items.length > 0
+          ? itemsTotal
+          : (input.subtotal ?? 0);
     if (subtotal <= 0) throw badRequest('Tổng tiền hoá đơn phải lớn hơn 0');
     const discount = Math.min(input.discount ?? 0, subtotal);
     const base = subtotal - discount;
@@ -62,8 +75,10 @@ export async function createOrder(brand: Brand, input: CreateOrderInput, adminId
       if (cv.brandId !== brand.id) throw badRequest('Voucher không áp dụng cho thương hiệu này');
       if (cv.status !== 'AVAILABLE') throw badRequest('Voucher đã được sử dụng hoặc hết hạn');
       if (cv.expiresAt < new Date()) throw badRequest('Voucher đã hết hạn');
-      if (base < cv.voucher.minOrder) throw badRequest(`Voucher áp dụng cho hoá đơn từ ${vnd(cv.voucher.minOrder)}`);
-      voucherDiscount = voucherDiscountAmount(cv.voucher, base);
+      if (!input.discountsAppliedByPos) {
+        if (base < cv.voucher.minOrder) throw badRequest(`Voucher áp dụng cho hoá đơn từ ${vnd(cv.voucher.minOrder)}`);
+        voucherDiscount = voucherDiscountAmount(cv.voucher, base);
+      }
       customerVoucherId = cv.id;
     }
     const total = base - voucherDiscount;
@@ -97,6 +112,7 @@ export async function createOrder(brand: Brand, input: CreateOrderInput, adminId
         source: input.source ?? 'ADMIN',
         externalId: input.externalId ?? null,
         createdById: adminId,
+        ...(input.paidAt ? { createdAt: input.paidAt } : {}),
         items: { create: input.items },
       },
     });
@@ -150,7 +166,7 @@ export async function createOrder(brand: Brand, input: CreateOrderInput, adminId
 }
 
 /** Huỷ hoá đơn: trừ lại điểm đã cộng, trả lại voucher, giảm tổng chi tiêu và xét lại hạng */
-export async function cancelOrder(brandId: number, orderId: number, adminId: number) {
+export async function cancelOrder(brandId: number, orderId: number, adminId: number | null) {
   await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({ where: { id: orderId }, include: { usedVoucher: true } });
     if (!order || order.brandId !== brandId) throw notFound('Hoá đơn không tồn tại');
@@ -191,7 +207,7 @@ export async function cancelOrder(brandId: number, orderId: number, adminId: num
         type: 'REFUND',
         description: `Huỷ hoá đơn ${order.code}`,
         orderId: order.id,
-        adminId,
+        adminId: adminId ?? undefined,
         allowNegative: true,
       });
     }

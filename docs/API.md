@@ -29,10 +29,11 @@ Base URL mặc định khi dev: `http://localhost:4000`
 
 ```ts
 Brand { id, code, name, logoUrl, primaryColor, hotline, about, zaloAppId, zaloOaId, active,
-  hasZaloAppSecretKey: boolean, hasZaloOaAccessToken: boolean /* secret không bao giờ trả về */ }
+  posEnabled, posWebhookUrl,
+  hasZaloAppSecretKey, hasZaloOaAccessToken, hasPosApiKey, hasPosWebhookSecret /* secret không bao giờ trả về */ }
 Tier { id, name, code, minSpent /* VND, dùng chung */, pointMultiplier, benefits: string|null /* nhiều dòng */, color }
 Wallet { id, customerId, brandId, homeBranchId, homeBranch, registeredAt, points, lifetimePoints, totalSpent, visitCount, lastVisitAt } // ví điểm / thành viên theo thương hiệu
-Branch { id, brandId, name, address, phone, openTime: "HH:mm", closeTime: "HH:mm", imageUrl, active }
+Branch { id, brandId, posCode /* mã nhà hàng bên r_keeper */, name, address, phone, openTime: "HH:mm", closeTime: "HH:mm", imageUrl, active }
 Promotion { id, brandId, title, summary, content /* nhiều dòng */, imageUrl, startDate, endDate, featured, active, createdAt }
 Voucher {
   id, brandId, title, description, imageUrl,
@@ -127,7 +128,10 @@ Thao tác trên 1 bản ghi (sửa, huỷ, đổi trạng thái) tự lấy thư
 |---|---|---|
 | POST | `/auth/login` | `{ username, password }` → `{ token, admin: { id, username, name, role, brandId } }` |
 | GET | `/auth/me` | admin hiện tại + `brands: Brand[]` được phép thao tác |
-| GET/POST/PUT 🌐 | `/brands[/:id]` | Quản lý thương hiệu `{ code, name, logoUrl, primaryColor, hotline, about, zaloAppId, zaloOaId, zaloAppSecretKey, zaloOaAccessToken, active }`. Trường secret: không gửi / chuỗi rỗng = giữ nguyên, `null` = xoá |
+| POST 🌐 | `/brands/:id/pos-api-key` | Tạo API key mới cho phần mềm bán hàng gửi bill về → `{ apiKey }` (chỉ hiện 1 lần, key cũ hết hiệu lực) |
+| GET 🏷 | `/pos/logs?direction=IN\|OUT&status=PENDING\|SUCCESS\|FAILED\|UNMATCHED\|IGNORED&type=&q=<mã bill>&page=` | Nhật ký đồng bộ r_keeper (+ `brand`, `customer`, `order`, `statusCounts`) |
+| POST 🏷 | `/pos/logs/:id/retry` 🔒 | OUT: gửi lại khách sang POS; IN (bill chưa khớp/lỗi): xử lý lại, có thể kèm `{ customerId }` để gán khách |
+| GET/POST/PUT 🌐 | `/brands[/:id]` | Quản lý thương hiệu `{ code, name, logoUrl, primaryColor, hotline, about, zaloAppId, zaloOaId, zaloAppSecretKey, zaloOaAccessToken, posEnabled, posWebhookUrl, posWebhookSecret, active }`. Trường secret: không gửi / chuỗi rỗng = giữ nguyên, `null` = xoá |
 | POST | `/auth/change-password` | `{ oldPassword, newPassword }` |
 | GET 🏷 | `/dashboard?branchId=` | `{ revenueByBrand: {id,name,primaryColor,revenue,orders}[], revenueByBranch: {id,name,brandId,brandName,revenue,orders}[] (tháng này), totalCustomers, newCustomersToday, bookingsToday, pendingBookings, revenueToday, ordersToday, revenueMonth, ordersMonth, vouchersUsedMonth, tierDistribution: {id,name,color,count}[], revenueByDay: {date,revenue,orders}[], recentOrders, upcomingBookings }` |
 | GET 🏷 | `/customers?q=&tierId=&branchId=&registered=true\|false&birthMonth=1..12&sort=createdAt\|totalSpent\|lastVisitAt&page=` | Phân trang khách (+ `tier`, `wallets[]` kèm `brand`, `homeBranch`, `registeredAt`; `wallet` = ví thương hiệu đang lọc). Khi lọc thương hiệu/cơ sở/đăng ký: chỉ khách là thành viên phù hợp. `branchId` = cơ sở khách chọn khi đăng ký |
@@ -155,3 +159,16 @@ Thao tác trên 1 bản ghi (sửa, huỷ, đổi trạng thái) tự lấy thư
 | GET / PUT 🔒 🏷 | `/settings?brandId=` | Cài đặt của 1 thương hiệu (bộ lọc hoặc `?brandId=`) `{ pointPerAmount, welcomePoints, bookingMinAdvanceMinutes, bookingMaxDays, maxPartySize }` (giá trị dạng string). Tên, hotline, giới thiệu nằm ở Brand |
 | GET/POST/PUT 🔒 | `/admins[/:id]` | Quản lý tài khoản `{ username, name, password, role, active, brandId }` (+ `brand`). Quản lý thương hiệu chỉ thấy/tạo tài khoản trong thương hiệu mình |
 | POST | `/upload` | multipart field `file` (ảnh ≤5MB) → `{ url }` |
+
+---
+
+## API cho phần mềm bán hàng (r_keeper / DCorp) — prefix `/api/pos`
+
+Xác thực bằng header `X-Api-Key` (theo thương hiệu). Đặc tả đầy đủ cho DCorp: [`POS-INTEGRATION.md`](POS-INTEGRATION.md).
+
+| Method | Path | Mô tả |
+|---|---|---|
+| POST | `/bills` | Nhận bill đã thanh toán (`status: PAID`) hoặc huỷ (`VOID`) → cộng/hoàn điểm ví thương hiệu & chi tiêu xét hạng. 201 đã ghi nhận, 200 trùng, 202 chưa khớp khách/cơ sở |
+| GET | `/customers/lookup?q=` | Tra cứu thành viên tại máy POS (memberCode / SĐT / mã khách r_keeper) |
+
+Lưu ý chung: mọi API cập nhật (PUT) chỉ thay đổi các trường được gửi lên.

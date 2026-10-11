@@ -44,7 +44,7 @@ dùng chung 1 backend, 1 database và 1 trang quản trị. Hệ thống gồm 3
 - Tổng quan: doanh thu, khách mới, đặt bàn hôm nay, phân bố hạng
 - Quản lý khách hàng: hồ sơ, ghi chú, cộng/trừ điểm thủ công, tặng voucher
 - Quản lý đặt bàn: xác nhận / huỷ / khách đã đến / không đến (tự nhắn tin qua OA nếu cấu hình)
-- **Hoá đơn & tích điểm**: hoá đơn chỉ đến từ phần mềm bán hàng r_keeper (qua DCorp – kết nối làm sau); trang quản trị xem lịch sử hoá đơn, huỷ để điều chỉnh. Khi đồng bộ, hệ thống tự cộng điểm và xét hạng
+- **Hoá đơn & tích điểm**: hoá đơn chỉ đến từ phần mềm bán hàng r_keeper (qua DCorp); tự cộng điểm và xét hạng khi nhận bill. Trang quản trị xem lịch sử hoá đơn, nhật ký đồng bộ POS, huỷ để điều chỉnh
 - **Xác nhận dùng voucher tại quầy**: nhân viên nhập/kiểm tra mã voucher khách đưa và đánh dấu đã dùng
 - Quản lý voucher (miễn phí / đổi điểm, giới hạn số lượng, hạng tối thiểu, tặng hàng loạt), kiểm tra mã voucher
 - Quản lý chương trình ưu đãi, hạng thành viên, chi nhánh, cấu hình tích điểm, tài khoản nhân viên (phân quyền Quản lý / Nhân viên)
@@ -90,7 +90,7 @@ cd mini-app && cp .env.example .env && npm install && npm run dev
 
 Chạy kiểm thử backend: `cd backend && npm test`.
 
-Hoá đơn chỉ đến từ phần mềm bán hàng (r_keeper, kết nối làm sau). Để thử tích điểm khi dev: đăng ký thành viên trên Mini App rồi chạy `cd backend && npm run db:demo-orders` (tạo hoá đơn mẫu cho các khách đã đăng ký).
+Hoá đơn chỉ đến từ phần mềm bán hàng r_keeper (`POST /api/pos/bills`). Để thử tích điểm khi chưa có connector: đăng ký thành viên trên Mini App rồi chạy `cd backend && npm run db:demo-orders` (tạo hoá đơn mẫu cho các khách đã đăng ký).
 
 ## Triển khai thật
 
@@ -106,9 +106,15 @@ Hoá đơn chỉ đến từ phần mềm bán hàng (r_keeper, kết nối làm
 4. **Mini App**: với mỗi thương hiệu, đặt `VITE_API_URL` (domain backend) và `VITE_BRAND` (mã thương hiệu), rồi deploy lên đúng Mini App ID của thương hiệu đó (xem `mini-app/README.md`). Thêm domain backend vào danh sách domain được phép trong cài đặt Mini App.
 5. (Tuỳ chọn) Nhập OA access token của thương hiệu để gửi tin nhắn OA khi xác nhận đặt bàn hoặc cộng điểm. Tin tư vấn OA chỉ gửi được cho người đã tương tác với OA gần đây; để thông báo giao dịch ổn định nên đăng ký **ZNS**.
 
-## Kết nối phần mềm bán hàng (r_keeper) – dự kiến
+## Kết nối phần mềm bán hàng r_keeper (DCorp)
 
-Hoá đơn đã có sẵn trường `source` (`ADMIN` / `POS`) và `externalId` (mã hoá đơn bên POS, chống đồng bộ trùng)
-để sau này thêm API nhận hoá đơn từ r_keeper (qua DCorp) mà không phải đổi cấu trúc dữ liệu.
+- **Khách đăng ký thành viên** trên Mini App → CRM gửi thông tin khách (tên, SĐT, ngày sinh, cơ sở, mã thành viên, hạng)
+  sang connector r_keeper qua webhook có ký HMAC, tự gửi lại khi lỗi; lưu lại mã khách bên r_keeper.
+- **Khách thanh toán** → connector gửi bill về `POST /api/pos/bills` → CRM cộng **điểm tích luỹ** vào ví thương hiệu
+  và cộng **chi tiêu xét hạng** (thăng hạng tự động). Chống ghi nhận trùng theo mã bill; bill huỷ thì hoàn điểm.
+- Bill không nhận diện được khách / cơ sở được lưu lại để quản trị gán khách và xử lý trên trang **Đồng bộ POS**.
+- Cấu hình theo thương hiệu (bật kết nối, API key, webhook) và mã POS từng cơ sở trên trang quản trị.
+
+Đặc tả gửi DCorp: [`docs/POS-INTEGRATION.md`](docs/POS-INTEGRATION.md).
 
 Chi tiết API: [`docs/API.md`](docs/API.md).

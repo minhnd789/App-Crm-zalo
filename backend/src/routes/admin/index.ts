@@ -9,6 +9,7 @@ import { ordersRouter } from './orders.js';
 import { vouchersRouter } from './vouchers.js';
 import { branchesRouter, promotionsRouter, tiersRouter } from './catalog.js';
 import { adminsRouter, settingsRouter, uploadRouter } from './system.js';
+import { posAdminRouter } from './pos.js';
 
 /**
  * API trang quản trị trung tâm – prefix /api/admin.
@@ -35,3 +36,4 @@ adminRouter.use('/vouchers', adminBrand, vouchersRouter);
 adminRouter.use('/promotions', adminBrand, promotionsRouter);
 adminRouter.use('/branches', adminBrand, branchesRouter);
 adminRouter.use('/settings', adminBrand, settingsRouter);
+adminRouter.use('/pos', adminBrand, posAdminRouter);

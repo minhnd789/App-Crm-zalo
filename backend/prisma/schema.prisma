@@ -30,6 +30,11 @@ model Brand {
   zaloAppSecretKey  String? // bí mật – không bao giờ trả về API
   zaloOaId          String?
   zaloOaAccessToken String? // bí mật – không bao giờ trả về API
+  // Kết nối phần mềm bán hàng (r_keeper qua DCorp)
+  posEnabled        Boolean  @default(false)
+  posApiKeyHash     String? // sha256 của API key POS dùng để gửi bill về – bí mật
+  posWebhookUrl     String? // URL nhận khách hàng mới từ CRM (connector r_keeper / DCorp)
+  posWebhookSecret  String? // khoá ký HMAC khi CRM gửi sang POS – bí mật
   active            Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -45,6 +50,7 @@ model Brand {
   vouchers          Voucher[]
   customerVouchers  CustomerVoucher[]
   settings          Setting[]
+  posSyncLogs       PosSyncLog[]
 }
 
 // Tài khoản trang quản trị.
@@ -76,6 +82,7 @@ model Branch {
   openTime  String   @default("10:00") // HH:mm
   closeTime String   @default("22:00") // HH:mm
   imageUrl  String?
+  posCode   String? // mã nhà hàng / điểm bán bên r_keeper – để map bill về đúng cơ sở
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -155,6 +162,8 @@ model CustomerWallet {
   homeBranchId   Int? // cơ sở khách chọn khi đăng ký – dùng phân loại khách
   homeBranch     Branch?   @relation(fields: [homeBranchId], references: [id])
   registeredAt   DateTime? // thời điểm khách hoàn tất đăng ký thành viên trên Mini App của thương hiệu
+  posCustomerId  String? // mã khách hàng / thẻ bên r_keeper sau khi đồng bộ
+  posSyncedAt    DateTime?
   points         Int       @default(0) // điểm hiện có (đổi ưu đãi)
   lifetimePoints Int       @default(0) // tổng điểm đã tích tại thương hiệu
   totalSpent     Int       @default(0) // chi tiêu tại thương hiệu
@@ -165,6 +174,7 @@ model CustomerWallet {
 
   @@unique([customerId, brandId])
   @@index([brandId, homeBranchId])
+  @@unique([brandId, posCustomerId])
 }
 
 // Lịch sử biến động điểm
@@ -332,4 +342,29 @@ model Setting {
   value   String
 
   @@id([brandId, key])
+}
+
+// Nhật ký đồng bộ với phần mềm bán hàng (r_keeper qua DCorp)
+// - OUT: CRM gửi khách hàng mới sang POS (hàng đợi, tự gửi lại khi lỗi)
+// - IN : POS gửi bill về CRM để cộng điểm / chi tiêu xét hạng
+model PosSyncLog {
+  id          Int       @id @default(autoincrement())
+  brandId     Int
+  brand       Brand     @relation(fields: [brandId], references: [id])
+  direction   String // IN | OUT
+  type        String // CUSTOMER_UPSERT | BILL_PAID | BILL_VOID
+  externalId  String? // mã bill bên POS (IN) hoặc id khách CRM (OUT)
+  customerId  Int?
+  orderId     Int?
+  payload     String // JSON
+  response    String?
+  status      String    @default("PENDING") // PENDING | SUCCESS | FAILED | UNMATCHED | IGNORED
+  error       String?
+  attempts    Int       @default(0)
+  nextRetryAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([brandId, status, createdAt])
+  @@index([status, nextRetryAt])
 }

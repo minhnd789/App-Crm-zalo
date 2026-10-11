@@ -34,8 +34,14 @@ function bearer(req: Request): string | null {
 
 /** Bỏ các trường bí mật trước khi trả Brand ra API */
 export function publicBrand(b: Brand) {
-  const { zaloAppSecretKey, zaloOaAccessToken, ...rest } = b;
-  return { ...rest, hasZaloAppSecretKey: !!zaloAppSecretKey, hasZaloOaAccessToken: !!zaloOaAccessToken };
+  const { zaloAppSecretKey, zaloOaAccessToken, posApiKeyHash, posWebhookSecret, ...rest } = b;
+  return {
+    ...rest,
+    hasZaloAppSecretKey: !!zaloAppSecretKey,
+    hasZaloOaAccessToken: !!zaloOaAccessToken,
+    hasPosApiKey: !!posApiKeyHash,
+    hasPosWebhookSecret: !!posWebhookSecret,
+  };
 }
 
 // ---------------- Mini App ----------------

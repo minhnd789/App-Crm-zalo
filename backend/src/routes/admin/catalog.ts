@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../db.js';
 import { badRequest, notFound } from '../../lib/errors.js';
-import { idParam, optionalDate } from '../../lib/http.js';
+import { idParam, optionalDate, updateSchemaOf } from '../../lib/http.js';
 import type { Request } from 'express';
 import { assertBrandAccess, brandForWrite, brandWhere, requireManager, requireSuperAdmin } from '../../lib/auth.js';
 import { tierForSpent } from '../../services/loyalty.js';
@@ -44,7 +44,7 @@ promotionsRouter.post('/', requireManager, async (req, res) => {
 promotionsRouter.put('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
   await ownPromotion(req, id);
-  res.json(await prisma.promotion.update({ where: { id }, data: promotionSchema.partial().parse(req.body) }));
+  res.json(await prisma.promotion.update({ where: { id }, data: updateSchemaOf(promotionSchema).parse(req.body) }));
 });
 promotionsRouter.delete('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
@@ -64,6 +64,8 @@ const branchSchema = z.object({
   openTime: hhmm.default('10:00'),
   closeTime: hhmm.default('22:00'),
   imageUrl: z.string().max(1000).nullable().optional(),
+  /** Mã nhà hàng / điểm bán bên r_keeper */
+  posCode: z.string().trim().max(50).nullable().optional(),
   active: z.boolean().default(true),
 });
 
@@ -90,7 +92,7 @@ branchesRouter.post('/', requireManager, async (req, res) => {
 branchesRouter.put('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
   await ownBranch(req, id);
-  res.json(await prisma.branch.update({ where: { id }, data: branchSchema.partial().parse(req.body) }));
+  res.json(await prisma.branch.update({ where: { id }, data: updateSchemaOf(branchSchema).parse(req.body) }));
 });
 branchesRouter.delete('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
@@ -140,7 +142,7 @@ tiersRouter.post('/', requireSuperAdmin, async (req, res) => {
   res.status(201).json(t);
 });
 tiersRouter.put('/:id', requireSuperAdmin, async (req, res) => {
-  const t = await prisma.tier.update({ where: { id: idParam(req.params.id) }, data: tierSchema.partial().parse(req.body) });
+  const t = await prisma.tier.update({ where: { id: idParam(req.params.id) }, data: updateSchemaOf(tierSchema).parse(req.body) });
   await recalcAllTiers();
   res.json(t);
 });

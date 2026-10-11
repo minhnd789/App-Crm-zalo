@@ -6,6 +6,7 @@ import { badRequest, notFound } from '../../lib/errors.js';
 import { idParam, optionalDate, paging, phoneSchema } from '../../lib/http.js';
 import { changePoints, expireVouchers, issueVoucher, membershipInfo } from '../../services/loyalty.js';
 import { brandForWrite, brandWhere, requireManager } from '../../lib/auth.js';
+import { enqueueCustomerUpsert } from '../../services/pos.js';
 
 /**
  * Khách hàng dùng chung mọi thương hiệu. Khi có thương hiệu đang chọn (X-Brand-Id),
@@ -166,7 +167,9 @@ const updateSchema = z.object({
 
 customersRouter.put('/:id', async (req, res) => {
   const data = updateSchema.parse(req.body);
-  res.json(await prisma.customer.update({ where: { id: idParam(req.params.id) }, data, include: { tier: true } }));
+  const updated = await prisma.customer.update({ where: { id: idParam(req.params.id) }, data, include: { tier: true } });
+  void enqueueCustomerUpsert(updated.id).catch((e) => console.error('[POS]', e));
+  res.json(updated);
 });
 
 /** Cộng/trừ điểm thủ công vào ví của 1 thương hiệu (bộ lọc hoặc `brandId`) – chỉ quản lý */

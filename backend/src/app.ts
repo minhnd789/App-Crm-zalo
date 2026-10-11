@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { errorHandler } from './lib/errors.js';
 import { appRouter } from './routes/app/index.js';
 import { adminRouter } from './routes/admin/index.js';
+import { posRouter } from './routes/pos/index.js';
 
 export function createApp() {
   const app = express();
@@ -18,6 +19,7 @@ export function createApp() {
   });
   app.use('/api/app', appRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/pos', posRouter);
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'API không tồn tại' });
   });

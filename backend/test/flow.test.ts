@@ -430,3 +430,154 @@ test('xác nhận dùng voucher tại quầy', async () => {
   const used = (await request(app).get('/api/app/my-vouchers?status=USED').set(appB())).body;
   assert.ok(used.some((v: any) => v.code === cv.code));
 });
+
+// ---------------------------------------------------------------------------
+// Kết nối phần mềm bán hàng r_keeper (qua connector DCorp)
+// ---------------------------------------------------------------------------
+test('r_keeper: gửi khách mới sang POS khi đăng ký, nhận bill để cộng điểm & chi tiêu xét hạng', async () => {
+  const { createServer } = await import('node:http');
+  const { createHmac } = await import('node:crypto');
+  const { processOutbox } = await import('../src/services/pos.js');
+
+  // Connector giả lập: nhận khách hàng từ CRM, trả về mã khách bên r_keeper
+  const received: { body: any; signature: string | undefined }[] = [];
+  const server = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      received.push({ body: JSON.parse(raw), signature: req.headers['x-crm-signature'] as string });
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ posCustomerId: `RK-${received.length}` }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const port = (server.address() as { port: number }).port;
+
+  try {
+    // Quản trị: bật kết nối POS cho thương hiệu A, tạo API key, khai báo mã cơ sở bên r_keeper
+    const superAuth = { Authorization: `Bearer ${adminToken}` };
+    const cfg = await request(app)
+      .put(`/api/admin/brands/${brandA}`)
+      .set(superAuth)
+      .send({ posEnabled: true, posWebhookUrl: `http://127.0.0.1:${port}/crm`, posWebhookSecret: 'bi-mat' });
+    assert.equal(cfg.status, 200);
+    assert.equal(cfg.body.hasPosWebhookSecret, true);
+    assert.equal(cfg.body.posWebhookSecret, undefined, 'không lộ secret');
+    assert.equal(cfg.body.active, true, 'cập nhật 1 phần không ghi đè trường khác về mặc định');
+    const apiKey = (await request(app).post(`/api/admin/brands/${brandA}/pos-api-key`).set(superAuth)).body.apiKey;
+    assert.match(apiKey, /^pos_/);
+    const br = await request(app).put(`/api/admin/branches/${branchA}`).set(central()).send({ posCode: 'RK-Q1' });
+    assert.equal(br.body.posCode, 'RK-Q1');
+    assert.equal(br.body.openTime, '10:00', 'giờ mở cửa giữ nguyên');
+    const pos = { 'X-Api-Key': apiKey };
+
+    // Khách mới đăng ký trên Mini App A → được gửi sang r_keeper
+    const login = await request(app).post('/api/app/auth/login').set('X-Brand', 'BRAND_A').send({ mockZaloId: 'zalo-pos-1', name: 'Phạm Bình' });
+    const t = { Authorization: `Bearer ${login.body.token}`, 'X-Brand': 'BRAND_A' };
+    const reg = await request(app).post('/api/app/me/register').set(t).send({ name: 'Phạm Bình', birthday: '1992-05-01', branchId: branchA, phone: '0912000111' });
+    assert.equal(reg.status, 200);
+    const memberCode = reg.body.memberCode;
+    await new Promise((r) => setTimeout(r, 50));
+    await processOutbox();
+    const sent = received.find((x) => x.body.customer.memberCode === memberCode);
+    assert.ok(sent, 'connector nhận được khách mới');
+    assert.equal(sent.body.event, 'customer.upsert');
+    assert.equal(sent.body.customer.phone, '0912000111');
+    assert.equal(sent.body.customer.homeBranch.posCode, 'RK-Q1');
+    const expectedSig = 'sha256=' + createHmac('sha256', 'bi-mat').update(JSON.stringify(sent.body)).digest('hex');
+    assert.equal(sent.signature, expectedSig, 'chữ ký HMAC hợp lệ');
+    const posCustomerId = `RK-${received.indexOf(sent) + 1}`;
+
+    // Sai / thiếu API key
+    assert.equal((await request(app).post('/api/pos/bills').send({})).status, 401);
+    assert.equal((await request(app).post('/api/pos/bills').set('X-Api-Key', 'pos_sai').send({})).status, 401);
+    // Tổng tiền không khớp
+    const bad = await request(app).post('/api/pos/bills').set(pos).send({ billId: 'X', subtotal: 100, discount: 10, total: 50 });
+    assert.equal(bad.status, 400);
+
+    // Bill thanh toán: khách nhận diện bằng mã khách r_keeper
+    const bill = {
+      billId: 'CHK-1001',
+      branchCode: 'RK-Q1',
+      customer: { posCustomerId },
+      subtotal: 1_000_000,
+      discount: 100_000,
+      total: 900_000,
+      items: [{ name: 'Lẩu', quantity: 1, price: 1_000_000 }],
+      paidAt: new Date().toISOString(),
+    };
+    const paid = await request(app).post('/api/pos/bills').set(pos).send(bill);
+    assert.equal(paid.status, 201, JSON.stringify(paid.body));
+    assert.equal(paid.body.pointsEarned, 90);
+    assert.equal(paid.body.customer.points, 50 + 90);
+    assert.equal(paid.body.customer.totalSpent, 900_000);
+
+    // POS gửi lại cùng bill → không cộng điểm lần 2
+    const again = await request(app).post('/api/pos/bills').set(pos).send(bill);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.duplicate, true);
+    assert.equal(again.body.customer.points, 140);
+
+    // Khách thấy hoá đơn & điểm trên Mini App
+    const me = (await request(app).get('/api/app/me').set(t)).body;
+    assert.equal(me.points, 140);
+    const orders = (await request(app).get('/api/app/orders').set(t)).body;
+    assert.equal(orders.items[0].branch.name, 'Quận 1');
+
+    // Tra cứu tại máy POS bằng mã thành viên (QR)
+    const look = await request(app).get(`/api/pos/customers/lookup?q=${memberCode}`).set(pos);
+    assert.equal(look.body.points, 140);
+    assert.equal(look.body.posCustomerId, posCustomerId);
+
+    // Bill không có thông tin thành viên → lưu "chưa khớp", quản trị gán khách rồi xử lý lại
+    const anon = await request(app).post('/api/pos/bills').set(pos).send({ billId: 'CHK-1002', branchCode: 'RK-Q1', subtotal: 500_000 });
+    assert.equal(anon.status, 202);
+    assert.equal(anon.body.status, 'UNMATCHED');
+    const logs = (await request(app).get('/api/admin/pos/logs?status=UNMATCHED').set(central())).body;
+    assert.equal(logs.items.length, 1);
+    const retry = await request(app).post(`/api/admin/pos/logs/${anon.body.logId}/retry`).set(central()).send({ customerId: reg.body.id });
+    assert.equal(retry.body.status, 'SUCCESS');
+    assert.equal((await request(app).get('/api/app/me').set(t)).body.points, 190);
+
+    // Mã cơ sở không tồn tại → chưa khớp
+    const wrongBranch = await request(app).post('/api/pos/bills').set(pos).send({ ...bill, billId: 'CHK-1003', branchCode: 'KHONG-CO' });
+    assert.equal(wrongBranch.body.status, 'UNMATCHED');
+
+    // Huỷ bill bên POS → hoàn điểm và chi tiêu
+    const voided = await request(app).post('/api/pos/bills').set(pos).send({ billId: 'CHK-1001', status: 'VOID', subtotal: 0 });
+    assert.equal(voided.body.status, 'CANCELLED');
+    const after = (await request(app).get('/api/app/me').set(t)).body;
+    assert.equal(after.points, 100);
+    assert.equal(after.totalSpent, 500_000);
+
+    // Thương hiệu B chưa bật POS → key của A không ghi bill sang B được, lookup chỉ trong A
+    const lookB = await request(app).get(`/api/pos/customers/lookup?q=0901234567`).set(pos);
+    assert.equal(lookB.status, 200);
+    assert.equal(lookB.body.registered, true);
+  } finally {
+    server.close();
+  }
+});
+
+test('r_keeper: connector lỗi → tự gửi lại sau, quản trị gửi lại thủ công', async () => {
+  const { processOutbox, enqueueCustomerUpsert } = await import('../src/services/pos.js');
+  const superAuth = { Authorization: `Bearer ${adminToken}` };
+  await request(app).put(`/api/admin/brands/${brandB}`).set(superAuth).send({ posEnabled: true, posWebhookUrl: 'http://127.0.0.1:1/khong-co' });
+  await enqueueCustomerUpsert(customerId, brandB);
+  await processOutbox();
+  const log = (await request(app).get('/api/admin/pos/logs?direction=OUT').set(admin(brandB))).body.items[0];
+  assert.equal(log.status, 'PENDING');
+  assert.equal(log.attempts, 1);
+  assert.ok(log.error);
+  assert.ok(new Date(log.nextRetryAt) > new Date(), 'hẹn gửi lại sau');
+  const retry = await request(app).post(`/api/admin/pos/logs/${log.id}/retry`).set(admin(brandB));
+  assert.equal(retry.body.attempts, 2);
+});
+
+test('cập nhật 1 phần voucher không làm mất cấu hình khác', async () => {
+  const v = (await request(app).get('/api/admin/vouchers?type=points').set(admin(brandA))).body.items[0];
+  const r = await request(app).put(`/api/admin/vouchers/${v.id}`).set(admin(brandA)).send({ active: false });
+  assert.equal(r.body.active, false);
+  assert.equal(r.body.pointCost, v.pointCost);
+  assert.equal(r.body.validDays, v.validDays);
+});

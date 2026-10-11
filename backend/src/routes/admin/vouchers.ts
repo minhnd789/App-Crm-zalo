@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { badRequest, notFound } from '../../lib/errors.js';
-import { idParam, optionalDate, paging } from '../../lib/http.js';
+import { idParam, optionalDate, paging, updateSchemaOf } from '../../lib/http.js';
 import { assertBrandAccess, brandForWrite, brandWhere, requireManager } from '../../lib/auth.js';
 import { expireVouchers, issueVoucher, voucherDiscountAmount } from '../../services/loyalty.js';
 
@@ -130,7 +130,7 @@ vouchersRouter.post('/', requireManager, async (req, res) => {
 
 vouchersRouter.put('/:id', requireManager, async (req, res) => {
   const id = idParam(req.params.id);
-  const { brandId: _ignored, ...data } = voucherSchema.partial().parse(req.body);
+  const { brandId: _ignored, ...data } = updateSchemaOf(voucherSchema).parse(req.body);
   const current = await prisma.voucher.findUnique({ where: { id } });
   if (!current) throw notFound('Voucher không tồn tại');
   assertBrandAccess(req, current.brandId, 'Voucher không tồn tại');

@@ -11,6 +11,7 @@ import { expireVouchers, issueVoucher, membershipInfo, voucherIneligibility } fr
 import { getPublicConfig } from '../../services/settings.js';
 import { validateBookingTime } from '../../services/bookings.js';
 import { loginWithZalo, mergeCustomers, registerMember } from '../../services/customers.js';
+import { enqueueCustomerUpsert, processOutbox } from '../../services/pos.js';
 
 /**
  * API cho Zalo Mini App (khách hàng) – prefix /api/app.
@@ -245,6 +246,10 @@ appRouter.post('/me/register', async (req, res) => {
   const result = await prisma.$transaction((tx) =>
     registerMember(tx, brand, req.customerId!, { name: body.name, phone, birthday: body.birthday, branchId: body.branchId }),
   );
+  // Gửi khách mới sang phần mềm bán hàng (r_keeper) – chạy nền, lỗi sẽ tự gửi lại
+  void enqueueCustomerUpsert(result.customerId)
+    .then(() => processOutbox())
+    .catch((e) => console.error('[POS] không đưa được khách vào hàng đợi:', e));
   res.json({
     ...(await serializeMe(result.customerId, brand.id)),
     merged: result.merged,
@@ -263,6 +268,7 @@ appRouter.put('/me/home-branch', async (req, res) => {
     create: { customerId: req.customerId!, brandId, homeBranchId: branchId },
     update: { homeBranchId: branchId },
   });
+  void enqueueCustomerUpsert(req.customerId!, brandId).catch((e) => console.error('[POS]', e));
   res.json(await serializeMe(req.customerId!, brandId));
 });
 
