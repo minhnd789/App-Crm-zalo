@@ -1,0 +1,236 @@
+// Prisma schema – CRM nhà hàng trên Zalo Mini App
+// Dev dùng SQLite. Khi lên production đổi provider thành "postgresql" hoặc "mysql".
+// Các trường trạng thái dùng String (SQLite không hỗ trợ enum), giá trị hợp lệ ghi ở comment.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Tài khoản trang quản trị
+model Admin {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("STAFF") // ADMIN | STAFF
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders           Order[]
+  pointTransactions PointTransaction[]
+}
+
+// Chi nhánh nhà hàng
+model Branch {
+  id        Int      @id @default(autoincrement())
+  name      String
+  address   String
+  phone     String?
+  openTime  String   @default("10:00") // HH:mm
+  closeTime String   @default("22:00") // HH:mm
+  imageUrl  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+  orders   Order[]
+}
+
+// Hạng thành viên. Khách đạt hạng khi điểm tích luỹ trọn đời >= minPoints
+model Tier {
+  id              Int      @id @default(autoincrement())
+  name            String
+  code            String   @unique
+  minPoints       Int      @default(0)
+  pointMultiplier Float    @default(1) // hệ số nhân điểm khi tích
+  benefits        String? // mô tả quyền lợi, mỗi dòng 1 quyền lợi
+  color           String   @default("#9E9E9E")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customers Customer[]
+  vouchers  Voucher[]
+}
+
+// Khách hàng (người dùng Zalo)
+model Customer {
+  id             Int       @id @default(autoincrement())
+  zaloId         String    @unique // ID người dùng theo Mini App (xác thực qua Graph API)
+  zaloOAId       String? // ID người dùng theo OA (idByOA) – dùng để gửi tin nhắn OA
+  followedOA     Boolean   @default(false)
+  name           String
+  avatar         String?
+  phone          String?   @unique
+  birthday       DateTime?
+  gender         String? // MALE | FEMALE | OTHER
+  memberCode     String    @unique // mã thành viên – hiển thị dạng QR cho nhân viên quét
+  points         Int       @default(0) // điểm hiện có (dùng để đổi ưu đãi)
+  lifetimePoints Int       @default(0) // tổng điểm đã tích (dùng để xét hạng)
+  totalSpent     Int       @default(0) // tổng chi tiêu (VND)
+  visitCount     Int       @default(0)
+  tierId         Int?
+  tier           Tier?     @relation(fields: [tierId], references: [id])
+  note           String? // ghi chú nội bộ của nhà hàng
+  lastVisitAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  bookings          Booking[]
+  orders            Order[]
+  vouchers          CustomerVoucher[]
+  pointTransactions PointTransaction[]
+}
+
+// Lịch sử biến động điểm
+model PointTransaction {
+  id           Int      @id @default(autoincrement())
+  customerId   Int
+  customer     Customer @relation(fields: [customerId], references: [id])
+  type         String // EARN | REDEEM | ADJUST | REFUND | WELCOME
+  points       Int // số dương = cộng, âm = trừ
+  balanceAfter Int
+  description  String
+  orderId      Int?
+  order        Order?   @relation(fields: [orderId], references: [id])
+  adminId      Int?
+  admin        Admin?   @relation(fields: [adminId], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([customerId, createdAt])
+}
+
+// Đặt bàn
+model Booking {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique
+  customerId   Int
+  customer     Customer @relation(fields: [customerId], references: [id])
+  branchId     Int
+  branch       Branch   @relation(fields: [branchId], references: [id])
+  bookingTime  DateTime
+  partySize    Int
+  contactName  String
+  contactPhone String
+  note         String?
+  status       String   @default("PENDING") // PENDING | CONFIRMED | ARRIVED | COMPLETED | CANCELLED | NO_SHOW
+  adminNote    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([bookingTime])
+  @@index([customerId])
+}
+
+// Hoá đơn khách đã ăn tại nhà hàng (nhân viên tạo trên trang quản trị)
+model Order {
+  id              Int       @id @default(autoincrement())
+  code            String    @unique
+  customerId      Int
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  branchId        Int?
+  branch          Branch?   @relation(fields: [branchId], references: [id])
+  bookingId       Int?
+  booking         Booking?  @relation(fields: [bookingId], references: [id])
+  subtotal        Int // tổng tiền món
+  discount        Int       @default(0) // giảm giá thủ công
+  voucherDiscount Int       @default(0) // giảm giá từ voucher
+  total           Int // số tiền khách trả
+  pointsEarned    Int       @default(0)
+  note            String?
+  status          String    @default("COMPLETED") // COMPLETED | CANCELLED
+  createdById     Int?
+  createdBy       Admin?    @relation(fields: [createdById], references: [id])
+  createdAt       DateTime  @default(now())
+  cancelledAt     DateTime?
+
+  items             OrderItem[]
+  usedVoucher       CustomerVoucher?
+  pointTransactions PointTransaction[]
+
+  @@index([customerId, createdAt])
+}
+
+model OrderItem {
+  id       Int    @id @default(autoincrement())
+  orderId  Int
+  order    Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  name     String
+  quantity Int
+  price    Int
+}
+
+// Chương trình ưu đãi (bài viết / banner giới thiệu)
+model Promotion {
+  id        Int       @id @default(autoincrement())
+  title     String
+  summary   String?
+  content   String? // nội dung chi tiết (text nhiều dòng)
+  imageUrl  String?
+  startDate DateTime?
+  endDate   DateTime?
+  featured  Boolean   @default(false) // hiện ở banner trang chủ
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Mẫu voucher. pointCost = 0 → nhận miễn phí; > 0 → đổi bằng điểm
+model Voucher {
+  id               Int       @id @default(autoincrement())
+  title            String
+  description      String?
+  imageUrl         String?
+  discountType     String // PERCENT | AMOUNT | GIFT
+  discountValue    Int       @default(0) // % hoặc số tiền; GIFT = 0
+  maxDiscount      Int? // giảm tối đa (với PERCENT)
+  minOrder         Int       @default(0) // đơn tối thiểu để áp dụng
+  pointCost        Int       @default(0)
+  totalQuantity    Int? // null = không giới hạn
+  issuedCount      Int       @default(0)
+  perCustomerLimit Int       @default(1)
+  validDays        Int       @default(30) // số ngày hiệu lực kể từ khi nhận
+  startDate        DateTime?
+  endDate          DateTime?
+  minTierId        Int? // hạng tối thiểu được nhận/đổi
+  minTier          Tier?     @relation(fields: [minTierId], references: [id])
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  customerVouchers CustomerVoucher[]
+}
+
+// Voucher trong ví của khách
+model CustomerVoucher {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique
+  customerId  Int
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  voucherId   Int
+  voucher     Voucher   @relation(fields: [voucherId], references: [id])
+  source      String // CLAIM | REDEEM | GIFT
+  pointsSpent Int       @default(0)
+  status      String    @default("AVAILABLE") // AVAILABLE | USED | EXPIRED
+  expiresAt   DateTime
+  usedAt      DateTime?
+  orderId     Int?      @unique
+  order       Order?    @relation(fields: [orderId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@index([customerId, status])
+}
+
+// Cấu hình chung dạng key-value
+model Setting {
+  key   String @id
+  value String
+}
