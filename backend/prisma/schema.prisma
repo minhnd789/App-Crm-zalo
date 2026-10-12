@@ -1,0 +1,377 @@
+// Prisma schema – CRM nhà hàng đa thương hiệu trên Zalo Mini App
+// Dev dùng SQLite. Khi lên production đổi provider thành "postgresql" hoặc "mysql".
+// Các trường trạng thái dùng String (SQLite không hỗ trợ enum), giá trị hợp lệ ghi ở comment.
+//
+// Mô hình đa thương hiệu (phương án C):
+// - Khách hàng (Customer) là 1 người duy nhất trên toàn hệ thống, nhận diện bằng số điện thoại.
+// - Mỗi thương hiệu có Mini App + OA riêng → mỗi khách có 1 CustomerZaloAccount cho mỗi thương hiệu.
+// - Hạng thành viên (Tier) dùng chung, xét theo tổng chi tiêu ở mọi thương hiệu.
+// - Điểm (CustomerWallet), voucher, chương trình ưu đãi, chi nhánh, cài đặt tách riêng theo thương hiệu.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Thương hiệu – mỗi thương hiệu là 1 Mini App + 1 Zalo OA
+model Brand {
+  id                Int      @id @default(autoincrement())
+  code              String   @unique // mã dùng trong Mini App (VITE_BRAND), vd "BRAND_A"
+  name              String
+  logoUrl           String?
+  primaryColor      String   @default("#C2410C")
+  hotline           String?
+  about             String?
+  zaloAppId         String?
+  zaloAppSecretKey  String? // bí mật – không bao giờ trả về API
+  zaloOaId          String?
+  zaloOaAccessToken String? // bí mật – không bao giờ trả về API
+  // Kết nối phần mềm bán hàng (r_keeper qua DCorp)
+  posEnabled        Boolean  @default(false)
+  posApiKeyHash     String? // sha256 của API key POS dùng để gửi bill về – bí mật
+  posWebhookUrl     String? // URL nhận khách hàng mới từ CRM (connector r_keeper / DCorp)
+  posWebhookSecret  String? // khoá ký HMAC khi CRM gửi sang POS – bí mật
+  // Cách gửi khách mới sang POS: WEBHOOK (connector tự viết, đặc tả docs/POS-INTEGRATION.md)
+  // hoặc DCORP (API đăng ký thành viên RK7 CRM của DCorp: POST /crm/cnv/register)
+  posProvider       String   @default("WEBHOOK") // WEBHOOK | DCORP
+  dcorpBaseUrl      String? // https://api-stg.dcorp.com.vn (sandbox) | https://api.dcorp.com.vn (production)
+  dcorpClientId     String?
+  dcorpClientSecret String? // bí mật – không bao giờ trả về API
+  dcorpOrganization Int? // mã tổ chức do DCorp cấp (UAT / PROD khác nhau)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  admins            Admin[]
+  branches          Branch[]
+  zaloAccounts      CustomerZaloAccount[]
+  wallets           CustomerWallet[]
+  pointTransactions PointTransaction[]
+  bookings          Booking[]
+  orders            Order[]
+  promotions        Promotion[]
+  vouchers          Voucher[]
+  customerVouchers  CustomerVoucher[]
+  settings          Setting[]
+  posSyncLogs       PosSyncLog[]
+}
+
+// Tài khoản trang quản trị.
+// brandId = null → quản trị toàn hệ thống; có brandId → chỉ thao tác trong thương hiệu đó.
+model Admin {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("STAFF") // ADMIN | STAFF
+  brandId      Int?
+  brand        Brand?   @relation(fields: [brandId], references: [id])
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders            Order[]
+  pointTransactions PointTransaction[]
+}
+
+// Cơ sở / chi nhánh nhà hàng (thuộc 1 thương hiệu), đặt tên theo vị trí, vd "Quận 1"
+model Branch {
+  id        Int      @id @default(autoincrement())
+  brandId   Int
+  brand     Brand    @relation(fields: [brandId], references: [id])
+  name      String
+  address   String
+  phone     String?
+  openTime  String   @default("10:00") // HH:mm
+  closeTime String   @default("22:00") // HH:mm
+  imageUrl  String?
+  posCode   String? // mã nhà hàng / điểm bán bên r_keeper – để map bill về đúng cơ sở
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+  orders   Order[]
+  members  CustomerWallet[]
+}
+
+// Hạng thành viên – dùng chung mọi thương hiệu. Đạt hạng khi tổng chi tiêu >= minSpent
+model Tier {
+  id              Int      @id @default(autoincrement())
+  name            String
+  code            String   @unique
+  minSpent        Int      @default(0) // tổng chi tiêu (VND) ở mọi thương hiệu
+  pointMultiplier Float    @default(1) // hệ số nhân điểm khi tích (áp dụng ở mọi thương hiệu)
+  benefits        String? // mô tả quyền lợi, mỗi dòng 1 quyền lợi
+  color           String   @default("#9E9E9E")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customers Customer[]
+  vouchers  Voucher[]
+}
+
+// Khách hàng – 1 người trên toàn hệ thống
+model Customer {
+  id          Int       @id @default(autoincrement())
+  name        String
+  avatar      String?
+  phone       String?   @unique
+  birthday    DateTime?
+  gender      String? // MALE | FEMALE | OTHER
+  memberCode  String    @unique // mã thành viên – QR dùng được ở mọi thương hiệu
+  totalSpent  Int       @default(0) // tổng chi tiêu mọi thương hiệu (VND) – dùng xét hạng
+  visitCount  Int       @default(0)
+  tierId      Int?
+  tier        Tier?     @relation(fields: [tierId], references: [id])
+  note        String? // ghi chú nội bộ
+  lastVisitAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  zaloAccounts      CustomerZaloAccount[]
+  wallets           CustomerWallet[]
+  bookings          Booking[]
+  orders            Order[]
+  vouchers          CustomerVoucher[]
+  pointTransactions PointTransaction[]
+}
+
+// Tài khoản Zalo của khách trong Mini App của từng thương hiệu
+// (Zalo cấp user ID khác nhau cho mỗi Mini App)
+model CustomerZaloAccount {
+  id          Int      @id @default(autoincrement())
+  customerId  Int
+  customer    Customer @relation(fields: [customerId], references: [id])
+  brandId     Int
+  brand       Brand    @relation(fields: [brandId], references: [id])
+  zaloId      String // ID người dùng theo Mini App
+  zaloOAId    String? // ID người dùng theo OA (idByOA) – dùng gửi tin nhắn OA
+  followedOA  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  lastLoginAt DateTime @default(now())
+
+  @@unique([brandId, zaloId])
+  @@unique([customerId, brandId])
+}
+
+// Ví điểm / tư cách thành viên của khách tại từng thương hiệu
+model CustomerWallet {
+  id             Int       @id @default(autoincrement())
+  customerId     Int
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  brandId        Int
+  brand          Brand     @relation(fields: [brandId], references: [id])
+  homeBranchId   Int? // cơ sở khách chọn khi đăng ký – dùng phân loại khách
+  homeBranch     Branch?   @relation(fields: [homeBranchId], references: [id])
+  registeredAt   DateTime? // thời điểm khách hoàn tất đăng ký thành viên trên Mini App của thương hiệu
+  posCustomerId  String? // mã khách hàng / thẻ bên r_keeper sau khi đồng bộ
+  posSyncedAt    DateTime?
+  points         Int       @default(0) // điểm hiện có (đổi ưu đãi)
+  lifetimePoints Int       @default(0) // tổng điểm đã tích tại thương hiệu
+  totalSpent     Int       @default(0) // chi tiêu tại thương hiệu
+  visitCount     Int       @default(0)
+  lastVisitAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([customerId, brandId])
+  @@index([brandId, homeBranchId])
+  @@unique([brandId, posCustomerId])
+}
+
+// Lịch sử biến động điểm
+model PointTransaction {
+  id           Int      @id @default(autoincrement())
+  customerId   Int
+  customer     Customer @relation(fields: [customerId], references: [id])
+  brandId      Int
+  brand        Brand    @relation(fields: [brandId], references: [id])
+  type         String // EARN | REDEEM | ADJUST | REFUND | WELCOME
+  points       Int // số dương = cộng, âm = trừ
+  balanceAfter Int
+  description  String
+  orderId      Int?
+  order        Order?   @relation(fields: [orderId], references: [id])
+  adminId      Int?
+  admin        Admin?   @relation(fields: [adminId], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([customerId, brandId, createdAt])
+}
+
+// Đặt bàn
+model Booking {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique
+  brandId      Int
+  brand        Brand    @relation(fields: [brandId], references: [id])
+  customerId   Int
+  customer     Customer @relation(fields: [customerId], references: [id])
+  branchId     Int
+  branch       Branch   @relation(fields: [branchId], references: [id])
+  bookingTime  DateTime
+  partySize    Int
+  contactName  String
+  contactPhone String
+  note         String?
+  status       String   @default("PENDING") // PENDING | CONFIRMED | ARRIVED | COMPLETED | CANCELLED | NO_SHOW
+  adminNote    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([brandId, bookingTime])
+  @@index([customerId])
+}
+
+// Hoá đơn khách đã ăn tại nhà hàng
+model Order {
+  id              Int       @id @default(autoincrement())
+  code            String    @unique
+  brandId         Int
+  brand           Brand     @relation(fields: [brandId], references: [id])
+  customerId      Int
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  branchId        Int?
+  branch          Branch?   @relation(fields: [branchId], references: [id])
+  bookingId       Int?
+  booking         Booking?  @relation(fields: [bookingId], references: [id])
+  subtotal        Int // tổng tiền món
+  discount        Int       @default(0) // giảm giá thủ công
+  voucherDiscount Int       @default(0) // giảm giá từ voucher
+  total           Int // số tiền khách trả
+  pointsEarned    Int       @default(0)
+  note            String?
+  status          String    @default("COMPLETED") // COMPLETED | CANCELLED
+  source          String    @default("ADMIN") // ADMIN | POS (đồng bộ từ phần mềm bán hàng, vd r_keeper)
+  externalId      String? // mã hoá đơn bên phần mềm bán hàng – chống đồng bộ trùng
+  createdById     Int?
+  createdBy       Admin?    @relation(fields: [createdById], references: [id])
+  createdAt       DateTime  @default(now())
+  cancelledAt     DateTime?
+
+  items             OrderItem[]
+  usedVoucher       CustomerVoucher?
+  pointTransactions PointTransaction[]
+
+  @@unique([brandId, externalId])
+  @@index([brandId, createdAt])
+  @@index([customerId, createdAt])
+}
+
+model OrderItem {
+  id       Int    @id @default(autoincrement())
+  orderId  Int
+  order    Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  name     String
+  quantity Int
+  price    Int
+}
+
+// Chương trình ưu đãi (bài viết / banner giới thiệu) của thương hiệu
+model Promotion {
+  id        Int       @id @default(autoincrement())
+  brandId   Int
+  brand     Brand     @relation(fields: [brandId], references: [id])
+  title     String
+  summary   String?
+  content   String? // nội dung chi tiết (text nhiều dòng)
+  imageUrl  String?
+  startDate DateTime?
+  endDate   DateTime?
+  featured  Boolean   @default(false) // hiện ở banner trang chủ
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// Mẫu voucher của thương hiệu. pointCost = 0 → nhận miễn phí; > 0 → đổi bằng điểm của thương hiệu
+model Voucher {
+  id               Int       @id @default(autoincrement())
+  brandId          Int
+  brand            Brand     @relation(fields: [brandId], references: [id])
+  title            String
+  description      String?
+  imageUrl         String?
+  discountType     String // PERCENT | AMOUNT | GIFT
+  discountValue    Int       @default(0) // % hoặc số tiền; GIFT = 0
+  maxDiscount      Int? // giảm tối đa (với PERCENT)
+  minOrder         Int       @default(0) // đơn tối thiểu để áp dụng
+  pointCost        Int       @default(0)
+  totalQuantity    Int? // null = không giới hạn
+  issuedCount      Int       @default(0)
+  perCustomerLimit Int       @default(1)
+  validDays        Int       @default(30) // số ngày hiệu lực kể từ khi nhận
+  startDate        DateTime?
+  endDate          DateTime?
+  minTierId        Int? // hạng tối thiểu được nhận/đổi
+  minTier          Tier?     @relation(fields: [minTierId], references: [id])
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  customerVouchers CustomerVoucher[]
+}
+
+// Voucher trong ví của khách (chỉ dùng được tại thương hiệu phát hành)
+model CustomerVoucher {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique
+  brandId     Int
+  brand       Brand     @relation(fields: [brandId], references: [id])
+  customerId  Int
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  voucherId   Int
+  voucher     Voucher   @relation(fields: [voucherId], references: [id])
+  source      String // CLAIM | REDEEM | GIFT
+  pointsSpent Int       @default(0)
+  status      String    @default("AVAILABLE") // AVAILABLE | USED | EXPIRED
+  expiresAt   DateTime
+  usedAt      DateTime?
+  orderId     Int?      @unique
+  order       Order?    @relation(fields: [orderId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@index([customerId, brandId, status])
+}
+
+// Cấu hình theo thương hiệu dạng key-value
+model Setting {
+  brandId Int
+  brand   Brand  @relation(fields: [brandId], references: [id])
+  key     String
+  value   String
+
+  @@id([brandId, key])
+}
+
+// Nhật ký đồng bộ với phần mềm bán hàng (r_keeper qua DCorp)
+// - OUT: CRM gửi khách hàng mới sang POS (hàng đợi, tự gửi lại khi lỗi)
+// - IN : POS gửi bill về CRM để cộng điểm / chi tiêu xét hạng
+model PosSyncLog {
+  id          Int       @id @default(autoincrement())
+  brandId     Int
+  brand       Brand     @relation(fields: [brandId], references: [id])
+  direction   String // IN | OUT
+  type        String // CUSTOMER_UPSERT | BILL_PAID | BILL_VOID
+  externalId  String? // mã bill bên POS (IN) hoặc id khách CRM (OUT)
+  customerId  Int?
+  orderId     Int?
+  payload     String // JSON
+  response    String?
+  status      String    @default("PENDING") // PENDING | SUCCESS | FAILED | UNMATCHED | IGNORED
+  error       String?
+  attempts    Int       @default(0)
+  nextRetryAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([brandId, status, createdAt])
+  @@index([status, nextRetryAt])
+}

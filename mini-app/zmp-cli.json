@@ -1,0 +1,6 @@
+{
+  "framework": "react-typescript",
+  "cssStore": "css",
+  "stateManagement": "none",
+  "template": "blank"
+}

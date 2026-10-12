@@ -1,0 +1,6 @@
+# Mini App của thương hiệu B – dùng: npm run dev:brand_b / npm run build:brand_b
+VITE_BRAND=BRAND_B
+VITE_APP_TITLE=Lẩu Nướng Vui
+VITE_HEADER_COLOR="#B91C1C"
+# VITE_API_URL=https://api.example.vn
+# VITE_ZALO_MOCK=false

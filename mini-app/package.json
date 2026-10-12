@@ -1,0 +1,38 @@
+{
+  "name": "restaurant-crm-mini-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Zalo Mini App thành viên nhà hàng",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000",
+    "dev:brand_a": "vite --port 3000 --mode brand_a",
+    "dev:brand_b": "vite --port 3000 --mode brand_b",
+    "start": "zmp start",
+    "build": "tsc --noEmit && vite build",
+    "build:brand_a": "tsc --noEmit && vite build --mode brand_a",
+    "build:brand_b": "tsc --noEmit && vite build --mode brand_b",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview --port 3000",
+    "login": "zmp login",
+    "deploy": "zmp deploy"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.13",
+    "qrcode.react": "^4.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zmp-sdk": "^2.53.0",
+    "zmp-ui": "^1.11.14"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11",
+    "zmp-cli": "^4.0.3",
+    "zmp-vite-plugin": "^1.1.6"
+  }
+}

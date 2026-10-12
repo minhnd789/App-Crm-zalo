@@ -1,0 +1,35 @@
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+body {
+  background: #f5f6f8;
+  -webkit-font-smoothing: antialiased;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.pre-line {
+  white-space: pre-line;
+}
+.ant-table-cell .ant-tag {
+  margin-inline-end: 0;
+}
+.stat-card .ant-statistic-title {
+  margin-bottom: 4px;
+}
+.row-current td { background: #fff7e6 !important; }
+.json-block {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  font-size: 12px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

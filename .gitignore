@@ -1,0 +1,10 @@
+node_modules/
+dist/
+www/
+.env
+*.db
+*.db-journal
+backend/uploads/
+.DS_Store
+*.log
+.zmp/

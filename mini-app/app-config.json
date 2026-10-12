@@ -1,0 +1,16 @@
+{
+  "app": {
+    "title": "Nhà hàng Ngon",
+    "headerTitle": "Nhà hàng Ngon",
+    "headerColor": "#C2410C",
+    "textColor": "white",
+    "leftButton": "back",
+    "statusBar": "transparent",
+    "actionBarHidden": true,
+    "hideAndroidBottomNavigationBar": false,
+    "hideIOSSafeAreaBottom": false
+  },
+  "listCSS": [],
+  "listSyncJS": [],
+  "listAsyncJS": []
+}
